@@ -1,0 +1,590 @@
+import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
+import { requireOperator, serviceClient } from "../_shared/auth.ts";
+import { sha256 } from "../_shared/crypto.ts";
+import {
+  BEST_TEAM_CONTRIBUTION_VERSION,
+  deriveBestTeamContributions,
+} from "../_shared/best-team.ts";
+import {
+  deriveQlcnAwardsFromContributions,
+  QLCN_DERIVATION_VERSION,
+} from "../_shared/qlcn.ts";
+import {
+  deriveTeamAwardsFromContributions,
+  TEAM_DERIVATION_VERSION,
+} from "../_shared/team.ts";
+import {
+  deriveLeaderAwards,
+  LEADER_DERIVATION_VERSION,
+} from "../_shared/leader.ts";
+import {
+  fetchPublicSheetCsv,
+  normalizeSheetRows,
+  normalizeText,
+  type SheetMapping,
+} from "../_shared/sheet.ts";
+
+type SyncRequest = {
+  sourceId?: string;
+  spreadsheetId?: string;
+  periodId?: string;
+  force?: boolean;
+};
+
+Deno.serve(async (request) => {
+  if (request.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+  if (request.method !== "POST") {
+    return jsonResponse({ error: "METHOD_NOT_ALLOWED" }, 405);
+  }
+
+  let batchId: string | null = null;
+  try {
+    const operator = await requireOperator(
+      request,
+      ["super_admin", "admin", "accounting", "publisher"],
+      { allowScheduleSecret: true },
+    );
+    const body = (await request.json().catch(() => ({}))) as SyncRequest;
+    const supabase = serviceClient();
+
+    let sourceQuery = supabase.from("sheet_sources").select("*").eq(
+      "is_active",
+      true,
+    );
+    if (body.sourceId) sourceQuery = sourceQuery.eq("id", body.sourceId);
+    else if (body.spreadsheetId) {
+      sourceQuery = sourceQuery.eq("spreadsheet_id", body.spreadsheetId);
+    } else {sourceQuery = sourceQuery.order("created_at", { ascending: true })
+        .limit(1);}
+    const { data: sourceRows, error: sourceError } = await sourceQuery.limit(1);
+    if (sourceError) throw sourceError;
+    const source = sourceRows?.[0];
+    if (!source) return jsonResponse({ error: "SHEET_SOURCE_NOT_FOUND" }, 404);
+
+    if (operator.scheduled && !source.final_cell) {
+      return jsonResponse({
+        error: "FINAL_CELL_REQUIRED_FOR_SCHEDULE",
+        message:
+          "Sheet hiện chưa có ô FINAL. Hãy đồng bộ thủ công hoặc cấu hình final_cell.",
+      }, 409);
+    }
+
+    if (source.final_cell && !body.force) {
+      const cellMatrix = await fetchPublicSheetCsv(
+        source.spreadsheet_id,
+        source.config?.finalSheet ?? "DS-KV",
+        source.final_cell,
+      );
+      const finalValue = cellMatrix.flat().find((value) =>
+        value?.trim()
+      )?.trim() ?? "";
+      if (
+        finalValue.toUpperCase() !==
+          String(source.final_value ?? "FINAL").toUpperCase()
+      ) {
+        return jsonResponse({
+          error: "SOURCE_NOT_FINAL",
+          currentValue: finalValue,
+        }, 409);
+      }
+    }
+
+    const { data: mappingRows, error: mappingError } = await supabase
+      .from("sheet_mappings")
+      .select("*")
+      .eq("source_id", source.id)
+      .eq("is_active", true)
+      .order("created_at", { ascending: true });
+    if (mappingError) throw mappingError;
+    if (!mappingRows?.length) {
+      return jsonResponse({ error: "NO_ACTIVE_MAPPINGS" }, 409);
+    }
+
+    const snapshots = [];
+    const allRows: Array<
+      {
+        mapping: SheetMapping;
+        normalized: ReturnType<typeof normalizeSheetRows>;
+      }
+    > = [];
+    const warnings: Array<Record<string, unknown>> = [];
+    const periods = new Set<string>();
+
+    for (const mapping of mappingRows as SheetMapping[]) {
+      if (source.auth_mode !== "public") {
+        throw new Error("SERVICE_ACCOUNT_MODE_NOT_CONFIGURED");
+      }
+      const matrix = await fetchPublicSheetCsv(
+        source.spreadsheet_id,
+        mapping.sheet_name,
+        mapping.range_a1,
+        mapping.header_row,
+      );
+      const normalized = normalizeSheetRows(matrix, mapping);
+      if (normalized.periodId) periods.add(normalized.periodId);
+      normalized.warnings.forEach((message) =>
+        warnings.push({ mapping: mapping.code, message })
+      );
+      normalized.rows.forEach((row) => {
+        row.validationMessages.forEach((message) => {
+          warnings.push({
+            mapping: mapping.code,
+            row: row.sourceRowNumber,
+            entityCode: row.entityCode,
+            message,
+          });
+        });
+      });
+      if (
+        mapping.filter_config?.requiresRevenueSelection &&
+        !mapping.filter_config?.selectedRevenueField
+      ) {
+        warnings.push({
+          mapping: mapping.code,
+          message: "Cần Admin chọn cột doanh số xét vinh danh.",
+        });
+      }
+      snapshots.push({
+        mappingCode: mapping.code,
+        title: normalized.title,
+        headers: normalized.headers,
+        rows: normalized.rows,
+      });
+      allRows.push({ mapping, normalized });
+    }
+
+    const periodId = body.periodId || Array.from(periods)[0];
+    if (!periodId) return jsonResponse({ error: "PERIOD_NOT_FOUND" }, 409);
+    if (periods.size > 1) {
+      warnings.push({
+        message: "Các tab đang hiển thị khác kỳ dữ liệu.",
+        periods: Array.from(periods),
+      });
+    }
+
+    const sourceHash = await sha256(JSON.stringify({
+      snapshots,
+      derivationVersions: {
+        bestTeam: BEST_TEAM_CONTRIBUTION_VERSION,
+        qlcn: QLCN_DERIVATION_VERSION,
+        team: TEAM_DERIVATION_VERSION,
+        leader: LEADER_DERIVATION_VERSION,
+      },
+    }));
+    const { data: latestBatch } = await supabase
+      .from("import_batches")
+      .select("id,source_hash,sequence,status")
+      .eq("source_id", source.id)
+      .eq("period_id", periodId)
+      .order("sequence", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (
+      latestBatch?.source_hash === sourceHash &&
+      !body.force &&
+      ["imported", "needs_review", "validated", "archived"].includes(
+        latestBatch.status,
+      )
+    ) {
+      return jsonResponse({
+        unchanged: true,
+        batch: latestBatch,
+        periodId,
+        sourceHash,
+      });
+    }
+
+    const sequence = Number(latestBatch?.sequence ?? 0) + 1;
+    const { data: batch, error: batchError } = await supabase
+      .from("import_batches")
+      .insert({
+        source_id: source.id,
+        period_id: periodId,
+        sequence,
+        status: "importing",
+        source_hash: sourceHash,
+        imported_by: operator.userId,
+        raw_snapshot: snapshots,
+        metadata: {
+          trigger: operator.scheduled ? "schedule" : "admin",
+          sourceName: source.name,
+        },
+      })
+      .select("id,period_id,sequence")
+      .single();
+    if (batchError) throw batchError;
+    batchId = batch.id;
+
+    const insertRows = [];
+    const seenEntities = new Map<string, number>();
+    for (const { mapping, normalized } of allRows) {
+      for (const row of normalized.rows) {
+        const duplicateKey =
+          mapping.code === "DS_KV" && row.entityCode && row.branchCode
+            ? `${mapping.code}:${normalizeText(row.branchCode)}:${
+              normalizeText(row.entityCode)
+            }`
+            : mapping.code === "DS_TEAM" && row.branchCode && row.teamCode
+            ? `${mapping.code}:${normalizeText(row.branchCode)}:${
+              normalizeText(row.teamCode)
+            }`
+            : row.entityCode
+            ? `${mapping.code}:${normalizeText(row.entityCode)}`
+            : "";
+        if (duplicateKey) {
+          seenEntities.set(
+            duplicateKey,
+            (seenEntities.get(duplicateKey) ?? 0) + 1,
+          );
+        }
+        insertRows.push({
+          batch_id: batch.id,
+          mapping_id: mapping.id,
+          source_row_key: row.sourceRowKey,
+          source_row_number: row.sourceRowNumber,
+          entity_type: row.entityType,
+          entity_code: row.entityCode,
+          display_name: row.displayName,
+          branch_code: row.branchCode,
+          team_code: row.teamCode,
+          role_code: row.roleCode,
+          source_rank: row.sourceRank,
+          source_board_code: row.sourceBoardCode,
+          revenue_vnd: row.revenueVnd,
+          display_revenue: row.displayRevenue,
+          metrics: row.metrics,
+          raw_data: row.rawData,
+          row_hash: await sha256(JSON.stringify(row.rawData)),
+          validation_status: row.validationStatus,
+          validation_messages: row.validationMessages,
+        });
+      }
+    }
+
+    for (const [key, count] of seenEntities.entries()) {
+      if (count > 1) {
+        warnings.push({
+          message: "Mã xuất hiện nhiều dòng trong cùng bảng.",
+          key,
+          count,
+        });
+      }
+    }
+    for (let offset = 0; offset < insertRows.length; offset += 500) {
+      const { error } = await supabase.from("import_rows").insert(
+        insertRows.slice(offset, offset + 500),
+      );
+      if (error) throw error;
+    }
+
+    const managerRows = allRows.find(({ mapping }) =>
+      mapping.code === "DS_KV"
+    )?.normalized.rows ?? [];
+    const teamRows = allRows.find(({ mapping }) =>
+      mapping.code === "DS_TEAM"
+    )?.normalized.rows ?? [];
+    const bestTeam = deriveBestTeamContributions(teamRows);
+    const qlcn = deriveQlcnAwardsFromContributions(managerRows, bestTeam, 3);
+    const team = deriveTeamAwardsFromContributions(bestTeam, 10);
+    const leader = deriveLeaderAwards(teamRows, 10);
+    bestTeam.warnings.forEach((warning) =>
+      warnings.push({ category: "BEST_TEAM", ...warning })
+    );
+    qlcn.warnings.forEach((warning) =>
+      warnings.push({ category: "QLCN", ...warning })
+    );
+    qlcn.candidates.filter((candidate) => candidate.needsReview).forEach(
+      (candidate) => {
+        warnings.push({
+          category: "QLCN",
+          manager: candidate.displayName,
+          entityCode: candidate.entityCode,
+          regions: candidate.regionCodes,
+          message: candidate.validationMessages.join("; "),
+        });
+      },
+    );
+    team.warnings.forEach((warning) =>
+      warnings.push({ category: "TEAM", ...warning })
+    );
+    team.candidates.filter((candidate) => candidate.needsReview).forEach(
+      (candidate) => {
+        warnings.push({
+          category: "TEAM",
+          team: candidate.displayName,
+          region: candidate.regionCode,
+          message: candidate.validationMessages.join("; "),
+        });
+      },
+    );
+    leader.warnings.forEach((warning) =>
+      warnings.push({ category: "LEADER", ...warning })
+    );
+    leader.candidates.filter((candidate) => candidate.needsReview).forEach(
+      (candidate) => {
+        warnings.push({
+          category: "LEADER",
+          leader: candidate.displayName,
+          entityCode: candidate.employeeCode,
+          message: candidate.validationMessages.join("; "),
+        });
+      },
+    );
+
+    const boardCodes = [
+      ...new Set([
+        ...qlcn.awards.map((award) => award.tierCode),
+        ...leader.awards.map((award) => award.tierCode),
+        ...(team.awards.length ? ["TEAM_RANKING"] : []),
+      ]),
+    ];
+    let boardRows: Array<{ id: string; code: string }> = [];
+    if (boardCodes.length) {
+      const { data, error } = await supabase
+        .from("award_boards")
+        .select("id,code")
+        .in("code", boardCodes);
+      if (error) throw error;
+      boardRows = data ?? [];
+    }
+    const boardIds = new Map(boardRows.map((board) => [board.code, board.id]));
+    const qlcnAwardResults = qlcn.awards.flatMap((award) => {
+      const boardId = boardIds.get(award.tierCode);
+      if (!boardId) {
+        warnings.push({
+          category: "QLCN",
+          message: `Không tìm thấy award_board ${award.tierCode}.`,
+        });
+        return [];
+      }
+      return [{
+        batch_id: batch.id,
+        board_id: boardId,
+        entity_type: "branch_manager",
+        entity_code: award.entityCode,
+        rank: award.rank,
+        display_name: award.displayName,
+        branch_code: award.regionCodes.join("+"),
+        role_label: award.roleCode,
+        revenue_vnd: award.revenueVnd,
+        display_revenue: award.displayRevenue,
+        needs_review: award.needsReview,
+        metadata: {
+          calculation: "SUM(DS-TEAM.GDTC XÉT BEST TEAM) grouped by DS-KV QLCN",
+          managerKey: award.managerKey,
+          regionCodes: award.regionCodes,
+          branchBreakdown: award.branchBreakdown,
+          managerSourceRowKeys: award.managerSourceRowKeys,
+          teamSourceRowKeys: award.teamSourceRowKeys,
+          sourceRowKeys: award.sourceRowKeys,
+          boardSource: award.boardSource,
+          derivationVersion: QLCN_DERIVATION_VERSION,
+          validationMessages: award.validationMessages,
+        },
+      }];
+    });
+    const teamBoardId = boardIds.get("TEAM_RANKING");
+    if (team.awards.length && !teamBoardId) {
+      warnings.push({
+        category: "TEAM",
+        message: "Không tìm thấy award_board TEAM_RANKING.",
+      });
+    }
+    const teamAwardResults = teamBoardId
+      ? team.awards.map((award) => ({
+        batch_id: batch.id,
+        board_id: teamBoardId,
+        entity_type: "team",
+        entity_code: award.entityCode,
+        rank: award.rank,
+        display_name: award.displayName,
+        branch_code: award.regionCode,
+        team_code: award.teamCode,
+        role_label: award.leaderName,
+        revenue_vnd: award.revenueVnd,
+        display_revenue: award.displayRevenue,
+        needs_review: award.needsReview,
+        metadata: {
+          calculation: "DS-TEAM.GDTC XÉT BEST TEAM ranked company-wide",
+          teamKey: award.teamKey,
+          leaderCode: award.leaderCode,
+          leaderName: award.leaderName,
+          leaderRoleCode: award.roleCode,
+          sourceRowKey: award.sourceRowKey,
+          sourceRowNumber: award.sourceRowNumber,
+          bestTeamContributionVersion: BEST_TEAM_CONTRIBUTION_VERSION,
+          derivationVersion: TEAM_DERIVATION_VERSION,
+          validationMessages: award.validationMessages,
+        },
+      }))
+      : [];
+    const leaderAwardResults = leader.awards.flatMap((award) => {
+      const boardId = boardIds.get(award.tierCode);
+      if (!boardId) {
+        warnings.push({
+          category: "LEADER",
+          message: `Không tìm thấy award_board ${award.tierCode}.`,
+        });
+        return [];
+      }
+      return [{
+        batch_id: batch.id,
+        board_id: boardId,
+        entity_type: "leader",
+        entity_code: award.employeeCode,
+        rank: award.rank,
+        display_name: award.displayName,
+        branch_code: award.branchCodes.join("+"),
+        team_code: award.teamCodes.join("+"),
+        role_label: award.roleCode,
+        revenue_vnd: award.revenueVnd,
+        display_revenue: award.displayRevenue,
+        needs_review: award.needsReview,
+        metadata: {
+          calculation: "SUM per MNV; prefer DS-TEAM.GDTC TÍNH TN, fallback GDTC XÉT BEST TEAM",
+          boardSource: award.boardSource,
+          branchCodes: award.branchCodes,
+          teamCodes: award.teamCodes,
+          sourceRowKeys: award.sourceRowKeys,
+          metricSources: award.metricSources,
+          derivationVersion: LEADER_DERIVATION_VERSION,
+          validationMessages: award.validationMessages,
+        },
+      }];
+    });
+    const awardResults = [
+      ...qlcnAwardResults,
+      ...leaderAwardResults,
+      ...teamAwardResults,
+    ];
+    if (awardResults.length) {
+      const { error: awardsError } = await supabase.from("award_results")
+        .insert(awardResults);
+      if (awardsError) throw awardsError;
+    }
+
+    const unresolvedCategories =
+      Array.isArray(source.config?.unresolvedCategories)
+        ? source.config.unresolvedCategories as string[]
+        : [];
+    unresolvedCategories.forEach((category) =>
+      warnings.push({
+        category,
+        message:
+          `${category} chưa có bảng kết quả/cột doanh số được xác nhận trong workbook hiện tại.`,
+      })
+    );
+
+    const finalStatus = warnings.length ? "needs_review" : "validated";
+    const { error: updateError } = await supabase
+      .from("import_batches")
+      .update({
+        status: finalStatus,
+        row_count: insertRows.length,
+        warning_count: warnings.length,
+        warnings,
+        source_updated_at: new Date().toISOString(),
+      })
+      .eq("id", batch.id);
+    if (updateError) throw updateError;
+
+    await supabase.from("audit_logs").insert({
+      actor_id: operator.userId,
+      action: "sheet.import",
+      entity_type: "import_batch",
+      entity_id: batch.id,
+      after_data: {
+        periodId,
+        sequence,
+        rowCount: insertRows.length,
+        warningCount: warnings.length,
+        qlcnCandidateCount: qlcn.candidates.length,
+        qlcnAwardCount: qlcnAwardResults.length,
+        teamCandidateCount: team.candidates.length,
+        teamAwardCount: teamAwardResults.length,
+        leaderCandidateCount: leader.candidates.length,
+        leaderAwardCount: leaderAwardResults.length,
+        sourceHash,
+      },
+    });
+
+    return jsonResponse({
+      unchanged: false,
+      batch: {
+        ...batch,
+        status: finalStatus,
+        rowCount: insertRows.length,
+        warningCount: warnings.length,
+      },
+      sourceHash,
+      qlcn: {
+        candidateCount: qlcn.candidates.length,
+        awardCount: qlcnAwardResults.length,
+        awards: qlcn.awards.map((award) => ({
+          boardCode: award.tierCode,
+          rank: award.rank,
+          entityCode: award.entityCode,
+          displayName: award.displayName,
+          regionCodes: award.regionCodes,
+          revenueVnd: award.revenueVnd,
+          displayRevenue: award.displayRevenue,
+          boardSource: award.boardSource,
+          needsReview: award.needsReview,
+        })),
+      },
+      team: {
+        candidateCount: team.candidates.length,
+        awardCount: teamAwardResults.length,
+        awards: team.awards.map((award) => ({
+          boardCode: "TEAM_RANKING",
+          rank: award.rank,
+          entityCode: award.entityCode,
+          displayName: award.displayName,
+          leaderCode: award.leaderCode,
+          leaderName: award.leaderName,
+          regionCode: award.regionCode,
+          revenueVnd: award.revenueVnd,
+          displayRevenue: award.displayRevenue,
+          needsReview: award.needsReview,
+        })),
+      },
+      leader: {
+        candidateCount: leader.candidates.length,
+        awardCount: leaderAwardResults.length,
+        awards: leader.awards.map((award) => ({
+          boardCode: award.tierCode,
+          rank: award.rank,
+          entityCode: award.employeeCode,
+          displayName: award.displayName,
+          branchCodes: award.branchCodes,
+          teamCodes: award.teamCodes,
+          revenueVnd: award.revenueVnd,
+          displayRevenue: award.displayRevenue,
+          boardSource: award.boardSource,
+          needsReview: award.needsReview,
+        })),
+      },
+      warnings,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (batchId) {
+      try {
+        await serviceClient().from("import_batches").update({
+          status: "failed",
+          warnings: [{ message }],
+        }).eq("id", batchId);
+      } catch {
+        // Preserve the original error.
+      }
+    }
+    if (message === "UNAUTHORIZED") {
+      return jsonResponse({ error: message }, 401);
+    }
+    if (message === "FORBIDDEN") return jsonResponse({ error: message }, 403);
+    return jsonResponse({ error: "SYNC_FAILED", message }, 500);
+  }
+});

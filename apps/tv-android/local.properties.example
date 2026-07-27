@@ -1,0 +1,10 @@
+# Copy this file to local.properties and adjust sdk.dir for your machine.
+# Never put a Supabase service_role key in an Android client.
+sdk.dir=C\:\\Users\\YOUR_USER\\AppData\\Local\\Android\\Sdk
+
+# Public project values only. The anon key is protected by backend RLS/policies.
+VINHDANH_SUPABASE_URL=
+VINHDANH_SUPABASE_ANON_KEY=
+
+# Optional demo clip. Production releases provide their own media_url values.
+VINHDANH_DEMO_VIDEO_URL=https://storage.googleapis.com/exoplayer-test-media-0/BigBuckBunny_320x180.mp4

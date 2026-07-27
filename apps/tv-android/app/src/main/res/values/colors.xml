@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="navy_950">#050A18</color>
+    <color name="navy_900">#08132B</color>
+    <color name="navy_800">#102448</color>
+    <color name="blue_500">#2C74FF</color>
+    <color name="blue_300">#75A7FF</color>
+    <color name="gold_500">#F6C453</color>
+    <color name="gold_300">#FFE39A</color>
+    <color name="silver_300">#D9E2F2</color>
+    <color name="bronze_400">#C98B5B</color>
+    <color name="green_400">#48D597</color>
+    <color name="red_400">#FF6B6B</color>
+    <color name="white">#FFFFFF</color>
+    <color name="white_70">#B3FFFFFF</color>
+    <color name="white_12">#1FFFFFFF</color>
+    <color name="black_55">#8C000000</color>
+</resources>

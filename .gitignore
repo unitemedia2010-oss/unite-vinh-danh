@@ -1,0 +1,32 @@
+# Local secrets
+.env
+.env.*
+!.env.example
+**/local.properties
+
+# JavaScript
+**/node_modules/
+**/dist/
+*.tsbuildinfo
+
+# Android / Gradle
+**/.gradle/
+**/build/
+*.apk
+*.jks
+*.keystore
+
+# Supabase local state
+supabase/.branches/
+supabase/.temp/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
+
+# Local agent state
+.agents/
+.codex/

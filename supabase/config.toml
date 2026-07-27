@@ -1,0 +1,10 @@
+project_id = "vinhdanh-unite"
+
+[functions.sync-sheet]
+verify_jwt = false
+
+[functions.screen-api]
+verify_jwt = false
+
+[functions.publish-release]
+verify_jwt = false

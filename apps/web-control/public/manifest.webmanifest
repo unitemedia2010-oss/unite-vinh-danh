@@ -1,0 +1,20 @@
+{
+  "name": "Unite Recognition TV",
+  "short_name": "Unite TV",
+  "description": "Màn hình vinh danh và truyền thông nội bộ Unite Group",
+  "lang": "vi",
+  "display": "standalone",
+  "orientation": "landscape",
+  "background_color": "#07090d",
+  "theme_color": "#090b10",
+  "start_url": "./#/screen",
+  "scope": "./",
+  "icons": [
+    {
+      "src": "./unite-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
