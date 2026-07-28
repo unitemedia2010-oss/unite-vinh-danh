@@ -26,9 +26,14 @@ const managerMapping: SheetMapping = {
     branch_code: { exact: "KHU VỰC" },
     display_name: { exact: "QLCN" },
     entity_code: { exact: "MNV" },
-    source_board_code: { exact: "BẢNG ĐẤU", prefix: "BẢNG ĐẤU" },
+    source_board_code: {
+      exact: "BẢNG ĐẤU",
+      prefix: "BẢNG ĐẤU",
+      columnIndex: 12,
+    },
     role_code: { exact: "CẤP BẬC" },
-    manager_metric: { prefix: "TỔNG GDTC+HC T" },
+    // DS-KV is fetched as B:N, so accounting column L is index 10.
+    manager_metric: { prefix: "TỔNG GDTC+HC T", columnIndex: 10 },
   },
   filter_config: {
     numericRankOnly: true,
@@ -53,11 +58,17 @@ const teamMapping: SheetMapping = {
     team_code: { exact: "TEAM" },
     display_name: { exact: "LEADER" },
     entity_code: { exact: "MNV" },
-    source_board_code: { exact: "BẢNG ĐẤU", prefix: "BẢNG ĐẤU" },
+    source_board_code: {
+      exact: "BẢNG ĐẤU",
+      prefix: "BẢNG ĐẤU",
+      columnIndex: 17,
+    },
     role_code: { exact: "CẤP BẬC" },
     branch_code: { exact: "KHU VỰC" },
-    best_team_metric: { exact: "GDTC XÉT BEST TEAM" },
-    total_gdtc_hc_metric: { prefix: "TỔNG GDTC+HC T" },
+    // DS-TEAM is fetched as B:S: accounting column O is index 13 and the
+    // month-bearing TỔNG GDTC+HC column N is index 12.
+    best_team_metric: { exact: "GDTC XÉT BEST TEAM", columnIndex: 13 },
+    total_gdtc_hc_metric: { prefix: "TỔNG GDTC+HC T", columnIndex: 12 },
   },
   filter_config: {
     numericRankOnly: true,
@@ -102,7 +113,9 @@ const validTeamContributionVnd = bestTeam.contributions.reduce(
   (sum, contribution) => sum + contribution.revenueVnd,
   0,
 );
-const assignedToManagersVnd = qlcn.candidates.reduce(
+const assignedToManagersVnd = qlcn.candidates.filter((candidate) =>
+  candidate.eligible
+).reduce(
   (sum, candidate) => sum + candidate.revenueVnd,
   0,
 );

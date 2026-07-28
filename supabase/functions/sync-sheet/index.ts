@@ -1,14 +1,12 @@
 import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { requireOperator, serviceClient } from "../_shared/auth.ts";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 import { sha256 } from "../_shared/crypto.ts";
 import {
   BEST_TEAM_CONTRIBUTION_VERSION,
   deriveBestTeamContributions,
 } from "../_shared/best-team.ts";
-import {
-  deriveQlcnAwards,
-  QLCN_DERIVATION_VERSION,
-} from "../_shared/qlcn.ts";
+import { deriveQlcnAwards, QLCN_DERIVATION_VERSION } from "../_shared/qlcn.ts";
 import {
   deriveTeamAwardsFromContributions,
   TEAM_DERIVATION_VERSION,
@@ -37,6 +35,84 @@ type SyncRequest = {
   force?: boolean;
   trigger?: unknown;
 };
+
+type AutomaticReleaseResult = {
+  unchanged: boolean;
+  releaseId: string;
+  releaseVersion: string;
+  activateAt: string;
+  targets: number;
+  targetScreenIds: string[];
+  broadcastAccepted: boolean;
+  broadcastError: string | null;
+};
+
+/**
+ * Creation, targeting and publication happen inside one database transaction.
+ * If it fails, every TV keeps the previous desired release.
+ */
+async function autoPublishValidatedBatch(
+  supabase: SupabaseClient,
+  batchId: string,
+): Promise<AutomaticReleaseResult> {
+  const { data, error } = await supabase.rpc(
+    "auto_publish_vinhdanh_import_batch",
+    { p_batch_id: batchId },
+  );
+  if (error) throw new Error(`AUTO_PUBLISH_FAILED: ${error.message}`);
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("AUTO_PUBLISH_INVALID_RESULT");
+  }
+  const result = data as Record<string, unknown>;
+  if (
+    typeof result.releaseId !== "string" ||
+    typeof result.releaseVersion !== "string" ||
+    typeof result.activateAt !== "string" ||
+    typeof result.targets !== "number" ||
+    !Array.isArray(result.targetScreenIds)
+  ) {
+    throw new Error("AUTO_PUBLISH_INVALID_RESULT");
+  }
+
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  let broadcastAccepted = false;
+  let broadcastError: string | null = null;
+  // Broadcast is only an accelerator. Heartbeat/manifest polling still sees
+  // desired_release_id when Realtime is temporarily unavailable.
+  try {
+    const response = await fetch(
+      `${supabaseUrl}/realtime/v1/api/broadcast/screen-updates/events/release-published`,
+      {
+        method: "POST",
+        headers: { apikey: serviceRoleKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          releaseId: result.releaseId,
+          releaseVersion: result.releaseVersion,
+          activateAt: result.activateAt,
+          automatic: true,
+        }),
+      },
+    );
+    broadcastAccepted = response.ok;
+    if (!response.ok) broadcastError = `HTTP_${response.status}`;
+  } catch (error) {
+    broadcastError = error instanceof Error ? error.message : String(error);
+  }
+
+  return {
+    unchanged: result.unchanged === true,
+    releaseId: result.releaseId,
+    releaseVersion: result.releaseVersion,
+    activateAt: result.activateAt,
+    targets: result.targets,
+    targetScreenIds: (result.targetScreenIds as unknown[]).filter(
+      (value): value is string => typeof value === "string",
+    ),
+    broadcastAccepted,
+    broadcastError,
+  };
+}
 
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
@@ -209,7 +285,7 @@ Deno.serve(async (request) => {
         p_metadata: {
           trigger,
           sourceName: source.name,
-          reviewRequired: operator.scheduled,
+          automaticRelease: true,
         },
         p_allow_duplicate: body.force === true,
       },
@@ -235,11 +311,15 @@ Deno.serve(async (request) => {
           sourceHash,
         }, 409);
       }
+      const automaticRelease = startResult.batch.status === "validated"
+        ? await autoPublishValidatedBatch(supabase, startResult.batch.id)
+        : null;
       return jsonResponse({
         unchanged: true,
         batch: startResult.batch,
         periodId,
         sourceHash,
+        automaticRelease,
       });
     }
     const batch = startResult.batch;
@@ -417,14 +497,14 @@ Deno.serve(async (request) => {
         entity_code: award.entityCode,
         rank: award.rank,
         display_name: award.displayName,
-        branch_code: award.regionCodes.join("+"),
+        branch_code: award.regionCodes[0] ?? null,
         role_label: award.roleCode,
         revenue_vnd: award.revenueVnd,
         display_revenue: award.displayRevenue,
         needs_review: award.needsReview,
         metadata: {
           calculation:
-            "SUM(DS-KV.TỔNG GDTC+HC Tn) grouped by QLCN MNV; manual Bảng Đấu",
+            "DS-KV.TỔNG GDTC+HC Tn per source row/region; manual Bảng Đấu",
           managerKey: award.managerKey,
           regionCodes: award.regionCodes,
           branchBreakdown: award.branchBreakdown,
@@ -529,7 +609,10 @@ Deno.serve(async (request) => {
       })
     );
 
-    const finalStatus = resolveImportStatus(operator.scheduled, warnings.length);
+    const finalStatus = resolveImportStatus(
+      operator.scheduled,
+      warnings.length,
+    );
     const observedAt = trigger.observedAt ?? new Date().toISOString();
     const { error: updateError } = await supabase
       .from("import_batches")
@@ -542,6 +625,15 @@ Deno.serve(async (request) => {
       })
       .eq("id", batch.id);
     if (updateError) throw updateError;
+
+    // The validated snapshot is durable. Do not let a later release failure
+    // rewrite it to `failed`: Apps Script will retry, and the unchanged path
+    // above retries publication idempotently for this exact batch.
+    batchId = null;
+    const automaticRelease = await autoPublishValidatedBatch(
+      supabase,
+      batch.id,
+    );
 
     await supabase.from("audit_logs").insert({
       actor_id: operator.userId,
@@ -561,7 +653,9 @@ Deno.serve(async (request) => {
         leaderAwardCount: leaderAwardResults.length,
         sourceHash,
         trigger,
-        reviewRequired: operator.scheduled,
+        automaticRelease: true,
+        releaseId: automaticRelease.releaseId,
+        releaseVersion: automaticRelease.releaseVersion,
         reconciliation: {
           managerMetricTotalVnd,
           bestTeamMetricTotalVnd,
@@ -632,6 +726,7 @@ Deno.serve(async (request) => {
         })),
       },
       warnings,
+      automaticRelease,
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

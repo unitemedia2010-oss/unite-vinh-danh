@@ -1,59 +1,66 @@
-# Google Apps Script watcher
+# Hướng dẫn đồng bộ Google Sheet tự động
 
-This optional, bound Apps Script gives the accounting workbook near-real-time,
-debounced sync. It is recommended for daily formula updates because `onEdit`
-does **not** run when `QUERY`, `IMPORTRANGE` or another formula recalculates by
-itself. A time trigger therefore polls display values and formulas as a fallback.
+Apps Script này được gắn trực tiếp vào file Sheet kế toán để phát hiện thay đổi
+và gọi Supabase gần như theo thời gian thực. Cần cả trigger `onEdit` lẫn trigger
+theo thời gian vì `onEdit` không chạy khi `QUERY`, `IMPORTRANGE` hoặc công thức
+tự tính lại mà không có người sửa ô.
 
-It never approves or publishes. The Edge Function creates an immutable snapshot
-with `needs_review`; an Admin must approve it before a release can reach TV or
-the public share page.
+Sau khi cài một lần, kế toán chỉ cần sửa Sheet như bình thường. Google Sheets tự
+lưu nên không cần nhấn `Ctrl+S`, không cần bấm duyệt và cũng không cần mở Admin.
+Backend tự kiểm tra snapshot, loại riêng dòng lỗi, tạo release bất biến và phát
+tới TV cùng trang share.
 
-## One-time setup
+## Cài đặt một lần
 
-1. Open the accounting Sheet, then **Extensions -> Apps Script**.
-2. Replace `Code.gs` with this directory's `Code.gs`. In **Project Settings**,
-   enable the manifest file and replace it with `appsscript.json`.
-3. In **Project Settings -> Script properties**, add:
+1. Mở file Sheet kế toán, chọn **Tiện ích mở rộng → Apps Script**.
+2. Xóa mã cũ trong `Code.gs`, rồi dán toàn bộ nội dung file `Code.gs` trong thư
+   mục này. Trong **Cài đặt dự án**, bật hiển thị tệp kê khai và thay nội dung
+   bằng file `appsscript.json`.
+3. Tại **Cài đặt dự án → Thuộc tính tập lệnh**, thêm đúng các thuộc tính:
 
-   - `SYNC_ENDPOINT` = `https://<project-ref>.supabase.co/functions/v1/sync-sheet`
-   - `SYNC_SHARED_SECRET` = the same random secret stored in the Supabase Edge
-     Function secret; use at least 32 random characters.
-   - `SPREADSHEET_ID` = the accounting workbook ID.
-   - `POLL_MINUTES` = `5` (use `1` only during month-end close if quota permits).
+   - `SYNC_ENDPOINT` =
+     `https://hmlnrrgzrrrambxsauec.supabase.co/functions/v1/sync-sheet`
+   - `SYNC_SHARED_SECRET` = secret 64 ký tự đang nằm trong clipboard sau khi
+     quản trị viên xoay secret. Chỉ dán giá trị, không thêm dấu nháy.
+   - `SPREADSHEET_ID` =
+     `1H0gZ6jW5KKvpP6WvdU07FdamYd8lWsOe9_WmdO6Z5PM`
+   - `POLL_MINUTES` = `5`.
    - `STABLE_SECONDS` = `60`.
-   - Optional `SOURCE_ID` = the UUID from `sheet_sources`.
-   - Optional `WATCH_RANGES_JSON` =
-     `["DS-KV!B1:N20","DS-TEAM!B1:S1000"]`.
+   - Có thể bỏ trống `SOURCE_ID`.
+   - Không bắt buộc `WATCH_RANGES_JSON`; mặc định đã theo dõi
+     `DS-KV!B1:N20` và `DS-TEAM!B1:S1000`.
 
-4. In Supabase, generate and set the secret without writing it to a file or
-   putting the value in PowerShell history. The last line copies it so it can be
-   pasted into Apps Script Script Properties:
+4. Chọn hàm `installVinhDanhSync`, nhấn **Chạy** một lần và cấp quyền. Tải lại
+   Sheet, menu **UNITE Vinh Danh** sẽ xuất hiện.
+5. Chọn **UNITE Vinh Danh → Kiểm tra thay đổi ngay**. Kết quả tốt phải báo HTTP
+   `200` và nêu rõ phiên bản `AUTO-...` đang được dùng hoặc vừa được phát.
 
-   ```powershell
-   $secretBytes = New-Object byte[] 32
-   $rng = [System.Security.Cryptography.RNGCryptoServiceProvider]::Create()
-   $rng.GetBytes($secretBytes)
-   $syncSecret = -join ($secretBytes | ForEach-Object { $_.ToString('x2') })
-   npx supabase secrets set "SYNC_SHARED_SECRET=$syncSecret" --project-ref <project-ref>
-   Set-Clipboard -Value $syncSecret
-   $rng.Dispose()
-   ```
+## Cách hoạt động
 
-5. Run `installVinhDanhSync` once and accept permissions. Reload the Sheet; the
-   **UNITE Vinh Danh** menu shows status and permits a manual check.
+- Khi người dùng sửa trực tiếp, script chỉ đánh dấu có thay đổi và đợi dữ liệu
+  ổn định 60 giây trước khi gửi.
+- Khi dữ liệu thay đổi do công thức, trigger 5 phút sẽ phát hiện. Vì vậy thay
+  đổi trực tiếp thường lên trong khoảng 1–2 phút; thay đổi chỉ do công thức
+  thường lên trong khoảng 5–6 phút.
+- Backend luôn đọc lại Sheet gốc; không tin dữ liệu được gửi từ trình duyệt.
+- Cột cố định được dùng làm nguồn quyết định:
+  - `DS-KV`: cột L là doanh số QLCN, cột N là `Bảng Đấu`.
+  - `DS-TEAM`: cột N xác định kỳ, cột O là `GDTC XÉT BEST TEAM`, cột S là
+    `Bảng Đấu` Leader.
+- Dòng thiếu tên, mã, khu vực, `Bảng Đấu`, hoặc doanh số không lớn hơn 0 bị loại
+  riêng. Dòng hợp lệ còn lại vẫn được xếp hạng và phát tự động.
+- Mỗi dòng QLCN/khu vực được xếp độc lập. Cùng một MNV có thể xuất hiện hai lần
+  nếu hai khu vực đều hợp lệ và đều lọt hạng.
+- Release mới giữ nguyên thứ tự, thời lượng, nền, logo, video và thông báo của
+  bản đang chạy; chỉ phần dữ liệu vinh danh được thay từ Sheet.
+- Nếu sai cấu trúc Sheet, mâu thuẫn kỳ, không còn kết quả an toàn, hoặc Supabase
+  gặp lỗi, giao dịch phát mới bị hủy và bản tốt gần nhất vẫn tiếp tục chạy.
+- Gửi lại cùng dữ liệu không tạo release trùng; hệ thống dùng lại đúng bản đã
+  phát.
 
-## Behavior
+## Bảo mật secret
 
-- Direct edits only mark the workbook dirty and schedule a deferred check.
-- A changed fingerprint must remain stable before the Edge Function is called.
-- A periodic poll catches formula-only recalculation even without `onEdit`.
-- Apps Script's document lock prevents overlapping trigger executions.
-- The Edge Function re-reads the canonical Sheet; it does not trust values sent
-  by Apps Script. Its source hash plus atomic database RPC make retries
-  idempotent and serialize concurrent Admin/trigger calls.
-- If Sheet parsing fails, columns disappear, formulas error, or warnings exist,
-  the previous published release stays live. Automation never calls publish.
-
-The secret must stay in Script Properties. Do not paste it into `Code.gs`, the
-web app, GitHub variables, APK resources, screenshots or support messages.
+Giữ `SYNC_SHARED_SECRET` trong **Thuộc tính tập lệnh**. Không dán secret vào
+`Code.gs`, source web, GitHub, APK, ảnh chụp màn hình hoặc tin nhắn hỗ trợ. Nếu
+secret từng xuất hiện trong ảnh, phải xoay secret ngay và cập nhật lại thuộc tính
+này.

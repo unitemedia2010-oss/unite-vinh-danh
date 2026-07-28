@@ -7,7 +7,7 @@ import {
 } from "./sheet.ts";
 
 export const LEADER_DERIVATION_VERSION =
-  "leader-ds-team-best-team-manual-board-v2";
+  "leader-ds-team-valid-rows-best-team-manual-board-v3";
 
 export type LeaderTierCode =
   | "LEADER_SU_TU"
@@ -55,9 +55,10 @@ function cleanCode(value: string | null): string | null {
 
 /**
  * Leader membership is manually assigned in DS-TEAM.BẢNG ĐẤU. Ranking is the
- * sum of DS-TEAM.GDTC XÉT BEST TEAM (column O) for that MNV. Blank/conflicting
- * board values and invalid metrics are excluded instead of silently deriving a
- * tier from thresholds or another revenue column.
+ * sum of DS-TEAM.GDTC XÉT BEST TEAM (column O) from valid rows for that MNV.
+ * Invalid rows are dropped before grouping, so one broken row cannot suppress
+ * another valid row belonging to the same Leader. Two different valid manual
+ * boards for the same MNV remain a blocking identity conflict.
  */
 export function deriveLeaderAwards(
   rows: NormalizedSheetRow[],
@@ -82,10 +83,12 @@ export function deriveLeaderAwards(
 
   for (const row of rows) {
     const employeeCode = cleanCode(row.entityCode);
-    if (!employeeCode || !row.displayName) {
+    const displayName = row.displayName?.trim() ?? "";
+    if (!employeeCode || !displayName) {
       warnings.push({
         code: "LEADER_IDENTITY_MISSING",
-        message: "Dòng Leader thiếu MNV hoặc họ tên nên chưa thể vinh danh.",
+        message:
+          "Dòng Leader thiếu MNV hoặc họ tên hợp lệ; chỉ dòng này bị loại.",
         details: {
           sourceRow: row.sourceRowNumber,
           employeeCode,
@@ -95,7 +98,19 @@ export function deriveLeaderAwards(
       continue;
     }
 
-    const messages = [...row.validationMessages];
+    let rowIsValid = row.validationMessages.length === 0;
+    if (row.validationMessages.length) {
+      warnings.push({
+        code: "LEADER_SOURCE_ROW_INVALID",
+        message: "Dòng nguồn Leader có lỗi; chỉ dòng này bị loại.",
+        details: {
+          sourceRow: row.sourceRowNumber,
+          employeeCode,
+          validationMessages: [...new Set(row.validationMessages)],
+        },
+      });
+    }
+
     const rawBoard = row.sourceBoardCode?.trim() ?? "";
     const normalizedBoard = normalizeManualBoardCode(rawBoard);
     const manualBoard = normalizedBoard && isLeaderBoardCode(normalizedBoard)
@@ -103,16 +118,16 @@ export function deriveLeaderAwards(
       : null;
     if (!rawBoard) {
       const message =
-        "Leader chưa có Bảng Đấu; không tự suy luận bảng từ doanh số.";
-      messages.push(message);
+        "Leader chưa có Bảng Đấu; không tự suy luận bảng từ doanh số và chỉ loại dòng này.";
       warnings.push({
         code: "LEADER_BOARD_MISSING",
         message,
         details: { sourceRow: row.sourceRowNumber, employeeCode },
       });
+      rowIsValid = false;
     } else if (!manualBoard) {
-      const message = `Bảng Đấu Leader không hợp lệ: ${rawBoard}.`;
-      messages.push(message);
+      const message =
+        `Bảng Đấu Leader không hợp lệ: ${rawBoard}; chỉ dòng này bị loại.`;
       warnings.push({
         code: "LEADER_BOARD_INVALID",
         message,
@@ -122,13 +137,13 @@ export function deriveLeaderAwards(
           value: rawBoard,
         },
       });
+      rowIsValid = false;
     }
 
     const metric = parseInteger(row.metrics.best_team_metric);
-    if (metric === null || metric < 0) {
+    if (metric === null || metric <= 0) {
       const message =
-        "Leader thiếu GDTC XÉT BEST TEAM hợp lệ; dòng bị loại khỏi bảng vinh danh.";
-      messages.push(message);
+        "Leader thiếu GDTC XÉT BEST TEAM hợp lệ hoặc doanh số không lớn hơn 0; chỉ dòng này bị loại.";
       warnings.push({
         code: "LEADER_METRIC_INVALID",
         message,
@@ -138,31 +153,41 @@ export function deriveLeaderAwards(
           value: row.metrics.best_team_metric,
         },
       });
+      rowIsValid = false;
     }
+
+    // Invalid source data is row-scoped. It must not add revenue, a board, or
+    // validation state to another otherwise valid row of the same employee.
+    if (!rowIsValid || !manualBoard || metric === null || metric <= 0) continue;
 
     const existing = leaders.get(employeeCode);
     if (!existing) {
       leaders.set(employeeCode, {
         employeeCode,
-        displayName: row.displayName,
+        displayName,
         roleCode: row.roleCode,
         branchCodes: new Set(
           row.branchCode ? [row.branchCode.trim().toUpperCase()] : [],
         ),
         teamCodes: new Set(row.teamCode ? [row.teamCode.trim()] : []),
-        revenueVnd: metric !== null && metric >= 0 ? metric : 0,
-        manualBoards: new Set(manualBoard ? [manualBoard] : []),
-        eligible: messages.length === 0 && Boolean(manualBoard),
-        needsReview: messages.length > 0 || !manualBoard,
-        validationMessages: messages,
+        revenueVnd: metric,
+        manualBoards: new Set([manualBoard]),
+        eligible: true,
+        needsReview: false,
+        validationMessages: [],
         sourceRowKeys: [row.sourceRowKey],
         metricSources: { [row.sourceRowKey]: "best_team_metric" },
       });
       continue;
     }
 
+    // Only fully valid rows reach this point. Every valid manual board must be
+    // considered, including a duplicate-team row, so board conflicts cannot be
+    // hidden by the duplicate guard below.
+    existing.manualBoards.add(manualBoard);
+
     if (
-      normalizeText(existing.displayName) !== normalizeText(row.displayName)
+      normalizeText(existing.displayName) !== normalizeText(displayName)
     ) {
       const message = "Cùng MNV Leader nhưng họ tên không đồng nhất.";
       existing.eligible = false;
@@ -174,7 +199,7 @@ export function deriveLeaderAwards(
         details: {
           employeeCode,
           sourceRow: row.sourceRowNumber,
-          names: [existing.displayName, row.displayName],
+          names: [existing.displayName, displayName],
         },
       });
     }
@@ -201,29 +226,20 @@ export function deriveLeaderAwards(
     ) {
       const message =
         `MNV ${employeeCode} bị lặp Team ${teamCode}; không cộng trùng doanh số.`;
-      existing.eligible = false;
-      existing.needsReview = true;
-      existing.validationMessages.push(message);
       warnings.push({
         code: "LEADER_TEAM_DUPLICATE",
         message,
         details: { employeeCode, teamCode, sourceRow: row.sourceRowNumber },
       });
-    } else {
-      if (teamCode) existing.teamCodes.add(teamCode);
-      if (metric !== null && metric >= 0) existing.revenueVnd += metric;
+      continue;
     }
+    if (teamCode) existing.teamCodes.add(teamCode);
+    existing.revenueVnd += metric;
     if (row.branchCode) {
       existing.branchCodes.add(row.branchCode.trim().toUpperCase());
     }
-    if (manualBoard) existing.manualBoards.add(manualBoard);
     existing.sourceRowKeys.push(row.sourceRowKey);
     existing.metricSources[row.sourceRowKey] = "best_team_metric";
-    if (messages.length) {
-      existing.eligible = false;
-      existing.needsReview = true;
-      existing.validationMessages.push(...messages);
-    }
   }
 
   const candidates = [...leaders.values()].map<LeaderCandidate>((leader) => {

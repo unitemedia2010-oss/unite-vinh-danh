@@ -52,12 +52,16 @@ export function normalizeSheetTrigger(
   };
 }
 
-/** Automated imports are always review candidates, even when parsers emit no
- * warnings. Only a human-authenticated Admin import may auto-validate clean data.
+/**
+ * Reaching this function means the Sheet schema and period checks have already
+ * passed. Row-level problems are advisory: the ranking pipeline excludes those
+ * rows and records a warning, so they must not force accounting into a manual
+ * approval loop. Schema/period failures return before an import batch is
+ * created, and transactional/database failures mark the in-flight batch failed.
  */
 export function resolveImportStatus(
-  scheduled: boolean,
-  warningCount: number,
+  _scheduled: boolean,
+  _warningCount: number,
 ): "needs_review" | "validated" {
-  return scheduled || warningCount > 0 ? "needs_review" : "validated";
+  return "validated";
 }

@@ -2,6 +2,9 @@ export type ColumnRule = {
   exact?: string;
   prefix?: string;
   regex?: string;
+  /** Zero-based, accounting-approved position inside the configured A1 range.
+   * When present this is authoritative; header text is only a diagnostic. */
+  columnIndex?: number;
 };
 
 export type SheetMapping = {
@@ -146,7 +149,7 @@ export function formatVnd(value: number | string | bigint | null): string | null
   return `${sign}${digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} VNĐ`;
 }
 
-function findColumns(headers: string[], ruleInput: ColumnRule | string): number[] {
+function findHeaderColumns(headers: string[], ruleInput: ColumnRule | string): number[] {
   const rule: ColumnRule = typeof ruleInput === "string" ? { exact: ruleInput } : ruleInput;
   if (rule.exact) {
     const expected = normalizeText(rule.exact);
@@ -170,6 +173,17 @@ function findColumns(headers: string[], ruleInput: ColumnRule | string): number[
     if (indexes.length) return indexes;
   }
   return [];
+}
+
+function findColumns(headers: string[], ruleInput: ColumnRule | string): number[] {
+  const rule: ColumnRule = typeof ruleInput === "string" ? { exact: ruleInput } : ruleInput;
+  if (
+    Number.isInteger(rule.columnIndex) && Number(rule.columnIndex) >= 0 &&
+      Number(rule.columnIndex) < headers.length
+  ) {
+    return [Number(rule.columnIndex)];
+  }
+  return findHeaderColumns(headers, ruleInput);
 }
 
 function findColumn(headers: string[], ruleInput: ColumnRule | string): number {
@@ -264,6 +278,17 @@ export function normalizeSheetRows(matrix: string[][], mapping: SheetMapping): {
   );
   const warnings: string[] = [];
   const blockingErrors: string[] = [];
+  for (const [field, rule] of Object.entries(mapping.column_map ?? {})) {
+    if (
+      typeof rule === "object" && Number.isInteger(rule.columnIndex) &&
+      !findHeaderColumns(headers, rule).includes(Number(rule.columnIndex)) &&
+      columnIndexes[field] === rule.columnIndex
+    ) {
+      warnings.push(
+        `${mapping.code}: tiêu đề cột ${field} không khớp; dùng vị trí cố định ${Number(rule.columnIndex) + 1} trong range`,
+      );
+    }
+  }
   for (const [field, index] of Object.entries(columnIndexes)) {
     if (index < 0) warnings.push(`${mapping.code}: không tìm thấy cột ${field}`);
   }

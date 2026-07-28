@@ -1,11 +1,11 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import { normalizeSheetTrigger, resolveImportStatus } from "./sync-policy.ts";
 
-Deno.test("automated imports always remain review candidates", () => {
-  assertEquals(resolveImportStatus(true, 0), "needs_review");
-  assertEquals(resolveImportStatus(true, 3), "needs_review");
+Deno.test("completed imports validate automatically; warnings are advisory", () => {
+  assertEquals(resolveImportStatus(true, 0), "validated");
+  assertEquals(resolveImportStatus(true, 3), "validated");
   assertEquals(resolveImportStatus(false, 0), "validated");
-  assertEquals(resolveImportStatus(false, 1), "needs_review");
+  assertEquals(resolveImportStatus(false, 1), "validated");
 });
 
 Deno.test("trigger metadata is allowlisted and bounded", () => {

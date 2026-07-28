@@ -86,8 +86,7 @@ Deno.test("Leader blank Bảng Đấu is excluded without threshold fallback", (
     metrics: { best_team_metric: 600_000_000 },
   })]);
 
-  assertEquals(result.candidates[0].tierCode, null);
-  assertEquals(result.candidates[0].eligible, false);
+  assertEquals(result.candidates.length, 0);
   assertEquals(result.awards.length, 0);
   assertEquals(result.warnings[0].code, "LEADER_BOARD_MISSING");
 });
@@ -121,7 +120,7 @@ Deno.test("Leader conflicting Bảng Đấu is review-only and excluded", () => 
   assertEquals(result.warnings[0].code, "LEADER_BOARD_CONFLICT");
 });
 
-Deno.test("Leader zero metric is valid when manually assigned", () => {
+Deno.test("Leader zero metric is excluded even when manually assigned", () => {
   const result = deriveLeaderAwards([row({
     sourceRowKey: "team:1",
     sourceRowNumber: 1,
@@ -132,9 +131,9 @@ Deno.test("Leader zero metric is valid when manually assigned", () => {
     metrics: { best_team_metric: 0 },
   })]);
 
-  assertEquals(result.awards.length, 1);
-  assertEquals(result.awards[0].revenueVnd, 0);
-  assertEquals(result.awards[0].needsReview, false);
+  assertEquals(result.candidates.length, 0);
+  assertEquals(result.awards.length, 0);
+  assertEquals(result.warnings[0].code, "LEADER_METRIC_INVALID");
 });
 
 Deno.test("Leader missing metric is excluded even when another metric exists", () => {
@@ -149,11 +148,162 @@ Deno.test("Leader missing metric is excluded even when another metric exists", (
   })]);
 
   assertEquals(result.awards.length, 0);
-  assertEquals(result.candidates[0].eligible, false);
+  assertEquals(result.candidates.length, 0);
   assertEquals(result.warnings[0].code, "LEADER_METRIC_INVALID");
 });
 
-Deno.test("Leader duplicate MNV and Team never double counts", () => {
+Deno.test("invalid metric rows do not contaminate a valid row of the same Leader", () => {
+  const result = deriveLeaderAwards([
+    row({
+      sourceRowKey: "team:valid",
+      sourceRowNumber: 1,
+      entityCode: "U1",
+      displayName: "Leader A",
+      teamCode: "Valid",
+      sourceBoardCode: "SU TU",
+      metrics: { best_team_metric: 50_000_000 },
+    }),
+    row({
+      sourceRowKey: "team:missing",
+      sourceRowNumber: 2,
+      entityCode: "U1",
+      displayName: "Leader A",
+      teamCode: "Missing",
+      sourceBoardCode: "SU TU",
+      metrics: {},
+    }),
+    row({
+      sourceRowKey: "team:formula",
+      sourceRowNumber: 3,
+      entityCode: "U1",
+      displayName: "Leader A",
+      teamCode: "Formula",
+      sourceBoardCode: "KY LAN",
+      metrics: { best_team_metric: "#REF!" },
+    }),
+    row({
+      sourceRowKey: "team:zero",
+      sourceRowNumber: 4,
+      entityCode: "U1",
+      displayName: "Leader A",
+      teamCode: "Zero",
+      sourceBoardCode: "SU TU",
+      metrics: { best_team_metric: 0 },
+    }),
+    row({
+      sourceRowKey: "team:negative",
+      sourceRowNumber: 5,
+      entityCode: "U1",
+      displayName: "Leader A",
+      teamCode: "Negative",
+      sourceBoardCode: "SU TU",
+      metrics: { best_team_metric: -1 },
+    }),
+  ]);
+
+  assertEquals(result.candidates.length, 1);
+  assertEquals(result.candidates[0].revenueVnd, 50_000_000);
+  assertEquals(result.candidates[0].teamCodes, ["Valid"]);
+  assertEquals(result.candidates[0].sourceRowKeys, ["team:valid"]);
+  assertEquals(result.awards.length, 1);
+  assertEquals(
+    result.warnings.filter((warning) =>
+      warning.code === "LEADER_METRIC_INVALID"
+    )
+      .length,
+    4,
+  );
+});
+
+Deno.test("invalid board rows do not create a conflict for a valid Leader row", () => {
+  const result = deriveLeaderAwards([
+    row({
+      sourceRowKey: "team:valid",
+      sourceRowNumber: 1,
+      entityCode: "U1",
+      displayName: "Leader A",
+      teamCode: "Valid",
+      sourceBoardCode: "SU TU",
+      metrics: { best_team_metric: 50 },
+    }),
+    row({
+      sourceRowKey: "team:blank-board",
+      sourceRowNumber: 2,
+      entityCode: "U1",
+      displayName: "Leader A",
+      teamCode: "Blank",
+      metrics: { best_team_metric: 40 },
+    }),
+    row({
+      sourceRowKey: "team:wrong-board",
+      sourceRowNumber: 3,
+      entityCode: "U1",
+      displayName: "Leader A",
+      teamCode: "Wrong",
+      sourceBoardCode: "THONG SOAI",
+      metrics: { best_team_metric: 30 },
+    }),
+  ]);
+
+  assertEquals(result.candidates.length, 1);
+  assertEquals(result.candidates[0].revenueVnd, 50);
+  assertEquals(result.candidates[0].tierCode, "LEADER_SU_TU");
+  assertEquals(result.candidates[0].eligible, true);
+  assertEquals(result.awards.length, 1);
+  assertEquals(
+    result.warnings.some((warning) => warning.code === "LEADER_BOARD_CONFLICT"),
+    false,
+  );
+  assertEquals(result.warnings.map((warning) => warning.code), [
+    "LEADER_BOARD_MISSING",
+    "LEADER_BOARD_INVALID",
+  ]);
+});
+
+Deno.test("invalid identity and source-error rows do not contaminate a valid Leader", () => {
+  const result = deriveLeaderAwards([
+    row({
+      sourceRowKey: "team:valid",
+      sourceRowNumber: 1,
+      entityCode: "U1",
+      displayName: "Leader A",
+      teamCode: "Valid",
+      sourceBoardCode: "KY LAN",
+      metrics: { best_team_metric: 200 },
+    }),
+    row({
+      sourceRowKey: "team:no-name",
+      sourceRowNumber: 2,
+      entityCode: "U1",
+      displayName: null,
+      teamCode: "No name",
+      sourceBoardCode: "KY LAN",
+      metrics: { best_team_metric: 100 },
+    }),
+    row({
+      sourceRowKey: "team:source-error",
+      sourceRowNumber: 3,
+      entityCode: "U1",
+      displayName: "Leader A",
+      teamCode: "Error",
+      sourceBoardCode: "KY LAN",
+      metrics: { best_team_metric: 90 },
+      validationStatus: "warning",
+      validationMessages: ["Dòng nguồn có lỗi công thức"],
+    }),
+  ]);
+
+  assertEquals(result.candidates.length, 1);
+  assertEquals(result.candidates[0].revenueVnd, 200);
+  assertEquals(result.candidates[0].sourceRowKeys, ["team:valid"]);
+  assertEquals(result.awards.length, 1);
+  assertEquals(result.warnings.map((warning) => warning.code), [
+    "LEADER_IDENTITY_MISSING",
+    "LEADER_SOURCE_ROW_INVALID",
+  ]);
+});
+
+Deno.test("Leader duplicate MNV and Team drops only the duplicate row", () => {
   const result = deriveLeaderAwards([
     row({
       sourceRowKey: "team:1",
@@ -176,7 +326,8 @@ Deno.test("Leader duplicate MNV and Team never double counts", () => {
   ]);
 
   assertEquals(result.candidates[0].revenueVnd, 10);
-  assertEquals(result.awards.length, 0);
+  assertEquals(result.awards.length, 1);
+  assertEquals(result.awards[0].sourceRowKeys, ["team:1"]);
   assertEquals(result.warnings[0].code, "LEADER_TEAM_DUPLICATE");
 });
 

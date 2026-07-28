@@ -44,8 +44,9 @@ headers resolves to period `2026-08`, not July.
 The accounting-owned rules are locked to these columns:
 
 - QLCN uses `DS-KV` column L, `TỔNG GDTC+HC Tn`, and column N, `Bảng Đấu`.
-  Revenue is summed by manager `MNV` across distinct regions, then ranked within
-  the manually assigned Thống Soái, Tướng Quân or Thủ Lĩnh board.
+  Every valid region row is ranked independently inside its manually assigned
+  Thống Soái, Tướng Quân or Thủ Lĩnh board. The same manager `MNV` may therefore
+  appear more than once when they manage multiple ranked regions.
 - Leader uses `DS-TEAM` column O, `GDTC XÉT BEST TEAM`, and column S,
   `BẢNG ĐẤU`. Revenue is summed by Leader `MNV` across distinct teams, then
   ranked within the manually assigned Kỳ Lân, Phượng Hoàng or Sư Tử board.
@@ -53,26 +54,21 @@ The accounting-owned rules are locked to these columns:
   column O. Ranks 1–3 are featured and ranks 4–10 use the list layout.
 
 No calculation falls back to `TỔNG CỌC`, `GDTC TÍNH TN` or another convenient
-column. A required header that is missing or duplicated, conflicting detected
-periods, a caller-supplied period mismatch, an ambiguous identity, or conflicting
-manual `Bảng Đấu` values fails closed instead of guessing.
+column. A required source column that cannot be resolved, conflicting detected
+periods or a caller-supplied period mismatch blocks the whole sync. Ambiguous
+identity and invalid `Bảng Đấu` values exclude only their own row instead of
+guessing or blocking valid neighbours.
 
-The read-only live audit on 27/07/2026 found both source totals equal:
-`DS-KV` column L = `58.710.000 VNĐ` and `DS-TEAM` column O =
-`58.710.000 VNĐ`. The seven safe QLCN results are Trần Minh Trường,
-Nguyễn Duy Linh and Trương Thị Tường Vi (Thống Soái); Trương Quang Nhất,
-Nguyễn Ngọc Lý and Trần Thị Huế (Tướng Quân); and Bùi Thiện Tú (Thủ Lĩnh).
+Rows without a positive number, complete identity or valid `Bảng Đấu` value are
+excluded individually. For example, two valid Nguyễn Thị Hà (`U177`) rows for
+DOC1 and DFC remain two independent candidates and may occupy two ranks. Blank
+Leader `BẢNG ĐẤU` values and unresolved Sale FT/PT sources remain visible as
+advisory warnings without fabricating names or revenue.
 
-Nguyễn Thị Hà (`U177`) is correctly merged across DOC1 and DFC to
-`4.570.000 VNĐ`, but those rows currently contain two different `Bảng Đấu`
-values, so she is excluded pending accounting review. Region TP has
-`2.700.000 VNĐ` without a manager, and the PKD team row has `2.920.000 VNĐ`
-without a region. Blank Leader `BẢNG ĐẤU` values and the unresolved Sale FT/PT
-sources also remain visible review warnings.
-
-Publishing is also gated: a release must be `ready`, and a linked import batch must be
-`validated`. This keeps unresolved region/manager rows off the TV even if award result rows
-have already been generated for Admin review.
+Publishing is gated by a validated import batch. Row-level errors are excluded
+from `award_results`; schema/period errors fail before publication. A completed
+batch is validated and published automatically, while the transactional release
+RPC keeps the last good release live on any release/database failure.
 
 `screen-api` returns only releases whose database status is `published`. It may return a published
 release before its `activate_at` timestamp so a TV can pre-download media; the TV keeps its current
@@ -107,14 +103,18 @@ fingerprint poll.
 Automated calls authenticate with `SYNC_SHARED_SECRET`, stored only in Supabase Function
 secrets and Apps Script Script Properties. They cannot set `force: true`. The backend
 re-reads the Sheet with cache bypass, serializes concurrent imports through
-`start_vinhdanh_import_batch`, and deduplicates identical source hashes. Every automated
-batch remains `needs_review` even with zero parser warnings; it never approves or publishes
-a release. If a `final_cell` is configured, its value is still enforced. Without one,
-automation is allowed to create review snapshots while the previous published TV/share
-release stays unchanged.
+`start_vinhdanh_import_batch`, and deduplicates identical source hashes. Once all blocking
+schema/period checks pass, row warnings remain visible but invalid rows are excluded and the
+batch is validated automatically. `auto_publish_vinhdanh_import_batch` then clones the
+latest company-wide published presentation, replaces every recognition payload with this
+batch's `award_results`, and atomically assigns the new immutable release to all active TVs.
+If any publication step fails, the transaction rolls back and the previous release remains
+desired/public; an identical subsequent sync retries publication for the validated batch.
+If a `final_cell` is configured, its value is still enforced.
 
 Apply `migrations/202607280001_atomic_sheet_sync.sql` and
-`migrations/202607280002_live_sheet_ranking_rules.sql` before deploying the updated
+`migrations/202607280002_live_sheet_ranking_rules.sql`, the Sheet mapping/index migration,
+and `migrations/202607280004_automatic_sheet_release.sql` before deploying the updated
 `sync-sheet`, then follow `integrations/google-apps-script/README.md`. Keep a 5-minute poll
 for normal daily operation; use 1 minute only during closing periods after checking Apps
 Script quota usage.

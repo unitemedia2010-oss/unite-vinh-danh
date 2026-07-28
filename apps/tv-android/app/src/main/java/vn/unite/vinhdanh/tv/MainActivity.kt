@@ -643,8 +643,10 @@ class MainActivity : Activity() {
         }
         playbackState = "playing-recognition"
         recognitionView.visibility = View.VISIBLE
-        recognitionHeadingView.text = item.title.uppercase()
-        recognitionSubtitleView.text = "${board.categoryLabel}  ·  ${board.periodLabel}"
+        recognitionHeadingView.text = board.categoryLabel
+            .ifBlank { item.title }
+            .uppercase()
+        recognitionSubtitleView.text = board.periodLabel
         recognitionRenderer.render(board)
         scheduleAdvance(item.durationSeconds)
     }

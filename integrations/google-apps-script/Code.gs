@@ -260,9 +260,13 @@ function vdCallSync_(config, fingerprint, stableForSeconds) {
   }
   return {
     status: status,
-    summary: parsed.unchanged
-      ? 'Không đổi; dùng lại snapshot hiện tại.'
-      : 'Đã tạo snapshot chờ Admin duyệt.',
+    summary: parsed.automaticRelease
+      ? (parsed.unchanged
+        ? 'Không đổi; bản ' + parsed.automaticRelease.releaseVersion + ' vẫn đang được dùng.'
+        : 'Đã tự kiểm tra và phát bản ' + parsed.automaticRelease.releaseVersion + '.')
+      : (parsed.unchanged
+        ? 'Không đổi; snapshot hiện tại chưa đủ điều kiện tự phát.'
+        : 'Đã đồng bộ nhưng chưa tạo được bản phát.'),
   };
 }
 

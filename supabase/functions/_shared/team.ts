@@ -6,7 +6,7 @@ import {
   deriveBestTeamContributions,
 } from "./best-team.ts";
 
-export const TEAM_DERIVATION_VERSION = "team-best-team-ranking-v1";
+export const TEAM_DERIVATION_VERSION = "team-best-team-ranking-v2";
 
 export type TeamAwardCandidate = BestTeamContribution & {
   entityCode: string;
@@ -58,11 +58,7 @@ export function deriveTeamAwardsFromContributions(
   for (const [revenueVnd, tied] of byRevenue.entries()) {
     if (tied.length < 2) continue;
     const message =
-      "Nhiều Team có cùng GDTC XÉT BEST TEAM; thứ tự tạm dùng khu vực và mã Team.";
-    tied.forEach((candidate) => {
-      candidate.needsReview = true;
-      candidate.validationMessages.push(message);
-    });
+      "Nhiều Team có cùng GDTC XÉT BEST TEAM; thứ tự được xác định ổn định bằng khu vực và mã Team.";
     warnings.push({
       code: "TEAM_REVENUE_TIE",
       message,

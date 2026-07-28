@@ -203,7 +203,7 @@ Deno.test("ranks by Best Team revenue, ignores zero revenue, and respects rankLi
   );
 });
 
-Deno.test("orders an exact revenue tie deterministically and marks every tied Team for review", () => {
+Deno.test("orders an exact revenue tie deterministically without manual review", () => {
   const result = deriveTeamAwards([
     row({
       sourceRowKey: "team:zzz:b",
@@ -235,13 +235,13 @@ Deno.test("orders an exact revenue tie deterministically and marks every tied Te
   ]);
   assertEquals(result.awards.map((award) => award.rank), [1, 2, 3]);
   assert(
-    result.awards.every((award) => award.needsReview),
-    "Every exactly tied Team must require review",
+    result.awards.every((award) => !award.needsReview),
+    "A deterministic revenue tie must remain eligible for automatic release",
   );
   assertEquals(result.awards.map((award) => award.validationMessages.length), [
-    1,
-    1,
-    1,
+    0,
+    0,
+    0,
   ]);
   assertEquals(result.warnings.length, 1);
   assertEquals(result.warnings[0].code, "TEAM_REVENUE_TIE");

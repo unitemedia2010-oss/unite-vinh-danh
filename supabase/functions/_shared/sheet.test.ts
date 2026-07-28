@@ -123,6 +123,107 @@ Deno.test("required revenue header must exist exactly once", () => {
   assertEquals(duplicate.rows[0].revenueVnd, null);
 });
 
+Deno.test("uses the accounting-approved fixed column when its header is mistyped", () => {
+  const mapping: SheetMapping = {
+    id: "mapping-fixed-column",
+    code: "DS_KV",
+    entity_type: "branch_manager",
+    sheet_name: "DS-KV",
+    title_row: 1,
+    header_row: 2,
+    data_start_row: 3,
+    column_map: {
+      source_rank: "STT",
+      branch_code: "KHU VỰC",
+      display_name: "QLCN",
+      entity_code: "MNV",
+      manager_metric: { prefix: "TỔNG GDTC+HC T", columnIndex: 10 },
+      source_board_code: "BẢNG ĐẤU",
+    },
+    filter_config: {
+      numericRankOnly: true,
+      selectedRevenueField: "manager_metric",
+      periodColumnField: "manager_metric",
+      requiredUniqueColumns: ["manager_metric", "source_board_code"],
+    },
+  };
+  const result = normalizeSheetRows([
+    ["DOANH SỐ THEO KHU VỰC ĐẾN 27/07/2026"],
+    [
+      "STT",
+      "KHU VỰC",
+      "QLCN",
+      "MNV",
+      "CẤP BẬC",
+      "CỌC RVT8",
+      "GDTC RVT8",
+      "CỌC T8",
+      "GDTC T8",
+      "TỔNG CỌC T8",
+      "TỔNG CỌC T8",
+      "% TN QLCN",
+      "BẢNG ĐẤU",
+    ],
+    ["1", "DOC1", "Nguyễn Thị Hà", "U177", "QLCN", "0", "0", "0", "0", "0", "4.570.000", "", "TƯỚNG QUÂN"],
+  ], mapping);
+
+  assertEquals(result.blockingErrors, []);
+  assertEquals(result.periodId, "2026-08");
+  assertEquals(result.rows[0].metrics.manager_metric, 4570000);
+  assertEquals(result.rows[0].sourceBoardCode, "TƯỚNG QUÂN");
+  assertEquals(result.warnings.length, 1);
+});
+
+Deno.test("fixed accounting column wins when a matching header exists elsewhere", () => {
+  const mapping: SheetMapping = {
+    id: "mapping-fixed-column-authoritative",
+    code: "DS_KV",
+    entity_type: "branch_manager",
+    sheet_name: "DS-KV",
+    title_row: 1,
+    header_row: 2,
+    data_start_row: 3,
+    column_map: {
+      source_rank: "STT",
+      branch_code: "KHU VỰC",
+      display_name: "QLCN",
+      entity_code: "MNV",
+      manager_metric: { prefix: "TỔNG GDTC+HC T", columnIndex: 10 },
+      source_board_code: "BẢNG ĐẤU",
+    },
+    filter_config: {
+      numericRankOnly: true,
+      selectedRevenueField: "manager_metric",
+      periodColumnField: "manager_metric",
+      requiredUniqueColumns: ["manager_metric", "source_board_code"],
+    },
+  };
+  const result = normalizeSheetRows([
+    ["DOANH SỐ THEO KHU VỰC ĐẾN 27/07/2026"],
+    [
+      "STT",
+      "KHU VỰC",
+      "QLCN",
+      "MNV",
+      "CẤP BẬC",
+      "CỌC RVT8",
+      "GDTC RVT8",
+      "CỌC T8",
+      "TỔNG GDTC+HC T8",
+      "TỔNG CỌC T8",
+      "TỔNG CỌC T8",
+      "% TN QLCN",
+      "BẢNG ĐẤU",
+    ],
+    ["1", "DOC1", "Nguyễn Thị Hà", "U177", "QLCN", "0", "0", "0", "999.000.000", "0", "4.570.000", "", "TƯỚNG QUÂN"],
+  ], mapping);
+
+  assertEquals(result.blockingErrors, []);
+  assertEquals(result.periodId, "2026-08");
+  assertEquals(result.rows[0].metrics.manager_metric, 4570000);
+  assertEquals(result.warnings.length, 1);
+});
+
 Deno.test("parses CSV cells containing commas and line breaks", () => {
   assertEquals(parseCsv('STT,TÊN,GHI CHÚ\n1,"Nguyễn, An","Dòng 1\nDòng 2"\n'), [
     ["STT", "TÊN", "GHI CHÚ"],
