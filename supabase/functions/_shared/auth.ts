@@ -1,4 +1,5 @@
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
+import { timingSafeTextEqual } from "./crypto.ts";
 
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
@@ -28,7 +29,10 @@ export async function requireOperator(
   if (options.allowScheduleSecret) {
     const configuredSecret = Deno.env.get("SYNC_SHARED_SECRET");
     const providedSecret = request.headers.get("x-sync-secret");
-    if (configuredSecret && providedSecret && providedSecret === configuredSecret) {
+    if (
+      configuredSecret && providedSecret &&
+      await timingSafeTextEqual(configuredSecret, providedSecret)
+    ) {
       return { userId: null, role: "scheduler", scheduled: true };
     }
   }

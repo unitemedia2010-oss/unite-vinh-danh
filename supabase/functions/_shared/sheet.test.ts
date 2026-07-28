@@ -21,6 +21,106 @@ Deno.test("formats revenue exactly as requested", () => {
 Deno.test("extracts Vietnamese month title", () => {
   assertEquals(extractPeriod("DOANH SỐ THEO KHU VỰC T7/2026"), "2026-07");
   assertEquals(extractPeriod("THÁNG 12/2026"), "2026-12");
+  assertEquals(extractPeriod("DOANH SỐ ĐẾN 27/07/2026"), "2026-07");
+});
+
+Deno.test("metric header month overrides the daily observation month", () => {
+  const mapping: SheetMapping = {
+    id: "mapping-period",
+    code: "DS_KV",
+    entity_type: "branch_manager",
+    sheet_name: "DS-KV",
+    title_row: 1,
+    header_row: 2,
+    data_start_row: 3,
+    column_map: {
+      source_rank: "STT",
+      display_name: "QLCN",
+      manager_metric: { prefix: "TỔNG GDTC+HC T" },
+    },
+    filter_config: {
+      numericRankOnly: true,
+      selectedRevenueField: "manager_metric",
+      periodColumnField: "manager_metric",
+      requiredUniqueColumns: ["manager_metric"],
+    },
+  };
+  const result = normalizeSheetRows([
+    ["DOANH SỐ THEO KHU VỰC ĐẾN 27/07/2026"],
+    ["STT", "QLCN", "TỔNG GDTC+HC T8"],
+    ["1", "Nguyễn An", "0"],
+  ], mapping);
+
+  assertEquals(result.periodId, "2026-08");
+  assertEquals(result.blockingErrors, []);
+});
+
+Deno.test("explicit title period conflicting with metric header is blocking", () => {
+  const mapping: SheetMapping = {
+    id: "mapping-period-conflict",
+    code: "DS_KV",
+    entity_type: "branch_manager",
+    sheet_name: "DS-KV",
+    title_row: 1,
+    header_row: 2,
+    data_start_row: 3,
+    column_map: {
+      source_rank: "STT",
+      display_name: "QLCN",
+      manager_metric: { prefix: "TỔNG GDTC+HC T" },
+    },
+    filter_config: {
+      numericRankOnly: true,
+      selectedRevenueField: "manager_metric",
+      periodColumnField: "manager_metric",
+      requiredUniqueColumns: ["manager_metric"],
+    },
+  };
+  const result = normalizeSheetRows([
+    ["DOANH SỐ T7/2026"],
+    ["STT", "QLCN", "TỔNG GDTC+HC T8"],
+    ["1", "Nguyễn An", "1"],
+  ], mapping);
+
+  assertEquals(result.periodId, "2026-07");
+  assertEquals(result.blockingErrors.length, 1);
+});
+
+Deno.test("required revenue header must exist exactly once", () => {
+  const mapping: SheetMapping = {
+    id: "mapping-required",
+    code: "DS_KV",
+    entity_type: "branch_manager",
+    sheet_name: "DS-KV",
+    title_row: 1,
+    header_row: 2,
+    data_start_row: 3,
+    column_map: {
+      source_rank: "STT",
+      display_name: "QLCN",
+      manager_metric: { prefix: "TỔNG GDTC+HC T" },
+    },
+    filter_config: {
+      numericRankOnly: true,
+      selectedRevenueField: "manager_metric",
+      requiredUniqueColumns: ["manager_metric"],
+    },
+  };
+
+  const missing = normalizeSheetRows([
+    ["DOANH SỐ T8/2026"],
+    ["STT", "QLCN", "TỔNG CỌC T8"],
+    ["1", "Nguyễn An", "1"],
+  ], mapping);
+  assertEquals(missing.blockingErrors.length, 1);
+
+  const duplicate = normalizeSheetRows([
+    ["DOANH SỐ T8/2026"],
+    ["STT", "QLCN", "TỔNG GDTC+HC T8", "TỔNG GDTC+HC T8 dự phòng"],
+    ["1", "Nguyễn An", "1", "2"],
+  ], mapping);
+  assertEquals(duplicate.blockingErrors.length, 1);
+  assertEquals(duplicate.rows[0].revenueVnd, null);
 });
 
 Deno.test("parses CSV cells containing commas and line breaks", () => {
@@ -65,7 +165,9 @@ Deno.test("normalizes rows by header and marks an unselected revenue field", () 
   assertEquals(result.rows[0].displayRevenue, null);
   assertEquals(result.rows[0].metrics.total_deposit, 156000000);
   assertEquals(result.rows[0].validationStatus, "warning");
-  assertEquals(result.rows[0].validationMessages, ["Chưa chọn cột doanh số xét vinh danh"]);
+  assertEquals(result.rows[0].validationMessages, [
+    "Chưa chọn cột doanh số xét vinh danh",
+  ]);
 });
 
 Deno.test("handles Google Visualization collapsing the title and STT header", () => {
@@ -91,7 +193,14 @@ Deno.test("handles Google Visualization collapsing the title and STT header", ()
     },
   };
   const result = normalizeSheetRows([
-    ["", "DOANH SỐ THEO KHU VỰC T7/2026 STT", "KHU VỰC", "QLCN", "MNV", "TỔNG CỌC T7"],
+    [
+      "",
+      "DOANH SỐ THEO KHU VỰC T7/2026 STT",
+      "KHU VỰC",
+      "QLCN",
+      "MNV",
+      "TỔNG CỌC T7",
+    ],
     ["", "1", "TBT", "Nguyễn An", "U001", "156.000.000"],
   ], mapping);
 

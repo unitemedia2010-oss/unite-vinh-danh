@@ -6,7 +6,7 @@ import {
   deriveBestTeamContributions,
 } from "../_shared/best-team.ts";
 import {
-  deriveQlcnAwardsFromContributions,
+  deriveQlcnAwards,
   QLCN_DERIVATION_VERSION,
 } from "../_shared/qlcn.ts";
 import {
@@ -23,12 +23,19 @@ import {
   normalizeText,
   type SheetMapping,
 } from "../_shared/sheet.ts";
+import { reconcileRecognitionSourceTotals } from "../_shared/reconciliation.ts";
+import { resolveSheetPeriod } from "../_shared/sheet-period.ts";
+import {
+  normalizeSheetTrigger,
+  resolveImportStatus,
+} from "../_shared/sync-policy.ts";
 
 type SyncRequest = {
   sourceId?: string;
   spreadsheetId?: string;
   periodId?: string;
   force?: boolean;
+  trigger?: unknown;
 };
 
 Deno.serve(async (request) => {
@@ -47,6 +54,10 @@ Deno.serve(async (request) => {
       { allowScheduleSecret: true },
     );
     const body = (await request.json().catch(() => ({}))) as SyncRequest;
+    if (operator.scheduled && body.force) {
+      return jsonResponse({ error: "SCHEDULE_FORCE_NOT_ALLOWED" }, 400);
+    }
+    const trigger = normalizeSheetTrigger(body.trigger, operator.scheduled);
     const supabase = serviceClient();
 
     let sourceQuery = supabase.from("sheet_sources").select("*").eq(
@@ -62,14 +73,6 @@ Deno.serve(async (request) => {
     if (sourceError) throw sourceError;
     const source = sourceRows?.[0];
     if (!source) return jsonResponse({ error: "SHEET_SOURCE_NOT_FOUND" }, 404);
-
-    if (operator.scheduled && !source.final_cell) {
-      return jsonResponse({
-        error: "FINAL_CELL_REQUIRED_FOR_SCHEDULE",
-        message:
-          "Sheet hiện chưa có ô FINAL. Hãy đồng bộ thủ công hoặc cấu hình final_cell.",
-      }, 409);
-    }
 
     if (source.final_cell && !body.force) {
       const cellMatrix = await fetchPublicSheetCsv(
@@ -110,6 +113,7 @@ Deno.serve(async (request) => {
       }
     > = [];
     const warnings: Array<Record<string, unknown>> = [];
+    const blockingErrors: Array<Record<string, unknown>> = [];
     const periods = new Set<string>();
 
     for (const mapping of mappingRows as SheetMapping[]) {
@@ -126,6 +130,9 @@ Deno.serve(async (request) => {
       if (normalized.periodId) periods.add(normalized.periodId);
       normalized.warnings.forEach((message) =>
         warnings.push({ mapping: mapping.code, message })
+      );
+      normalized.blockingErrors.forEach((message) =>
+        blockingErrors.push({ mapping: mapping.code, message })
       );
       normalized.rows.forEach((row) => {
         row.validationMessages.forEach((message) => {
@@ -155,14 +162,33 @@ Deno.serve(async (request) => {
       allRows.push({ mapping, normalized });
     }
 
-    const periodId = body.periodId || Array.from(periods)[0];
-    if (!periodId) return jsonResponse({ error: "PERIOD_NOT_FOUND" }, 409);
-    if (periods.size > 1) {
-      warnings.push({
-        message: "Các tab đang hiển thị khác kỳ dữ liệu.",
-        periods: Array.from(periods),
-      });
+    if (blockingErrors.length) {
+      return jsonResponse({
+        error: "SOURCE_SCHEMA_INVALID",
+        message:
+          "Sheet thiếu hoặc trùng cột bắt buộc; không tạo bản nhập để tránh xếp hạng sai.",
+        blockingErrors,
+        warnings,
+      }, 409);
     }
+
+    const periodResolution = resolveSheetPeriod(periods, body.periodId);
+    if (!periodResolution.ok) {
+      const messages = {
+        PERIOD_NOT_FOUND: "Không xác định được kỳ từ cột doanh số Sheet.",
+        SOURCE_PERIOD_CONFLICT:
+          "Tháng của cột doanh số bắt buộc đang khác nhau giữa các tab; không tạo bản nhập.",
+        REQUEST_PERIOD_MISMATCH:
+          "Kỳ do người gọi truyền vào khác kỳ được phát hiện từ cột doanh số Sheet.",
+      } as const;
+      return jsonResponse({
+        error: periodResolution.error,
+        message: messages[periodResolution.error],
+        periods: periodResolution.periods,
+        requestedPeriodId: periodResolution.requestedPeriodId,
+      }, 409);
+    }
+    const periodId = periodResolution.periodId;
 
     const sourceHash = await sha256(JSON.stringify({
       snapshots,
@@ -173,50 +199,59 @@ Deno.serve(async (request) => {
         leader: LEADER_DERIVATION_VERSION,
       },
     }));
-    const { data: latestBatch } = await supabase
-      .from("import_batches")
-      .select("id,source_hash,sequence,status")
-      .eq("source_id", source.id)
-      .eq("period_id", periodId)
-      .order("sequence", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (
-      latestBatch?.source_hash === sourceHash &&
-      !body.force &&
-      ["imported", "needs_review", "validated", "archived"].includes(
-        latestBatch.status,
-      )
-    ) {
+    const { data: startResultRaw, error: startError } = await supabase.rpc(
+      "start_vinhdanh_import_batch",
+      {
+        p_source_id: source.id,
+        p_period_id: periodId,
+        p_source_hash: sourceHash,
+        p_imported_by: operator.userId,
+        p_metadata: {
+          trigger,
+          sourceName: source.name,
+          reviewRequired: operator.scheduled,
+        },
+        p_allow_duplicate: body.force === true,
+      },
+    );
+    if (startError) throw startError;
+    const startResult = startResultRaw as {
+      unchanged?: boolean;
+      batch?: {
+        id: string;
+        period_id: string;
+        sequence: number;
+        status: string;
+        source_hash: string;
+      };
+    } | null;
+    if (!startResult?.batch?.id) throw new Error("INVALID_IMPORT_START_RESULT");
+    if (startResult.unchanged) {
+      if (startResult.batch.status === "importing") {
+        return jsonResponse({
+          error: "SYNC_ALREADY_IN_PROGRESS",
+          batch: startResult.batch,
+          periodId,
+          sourceHash,
+        }, 409);
+      }
       return jsonResponse({
         unchanged: true,
-        batch: latestBatch,
+        batch: startResult.batch,
         periodId,
         sourceHash,
       });
     }
-
-    const sequence = Number(latestBatch?.sequence ?? 0) + 1;
-    const { data: batch, error: batchError } = await supabase
-      .from("import_batches")
-      .insert({
-        source_id: source.id,
-        period_id: periodId,
-        sequence,
-        status: "importing",
-        source_hash: sourceHash,
-        imported_by: operator.userId,
-        raw_snapshot: snapshots,
-        metadata: {
-          trigger: operator.scheduled ? "schedule" : "admin",
-          sourceName: source.name,
-        },
-      })
-      .select("id,period_id,sequence")
-      .single();
-    if (batchError) throw batchError;
+    const batch = startResult.batch;
+    const sequence = Number(batch.sequence);
     batchId = batch.id;
+
+    const { error: snapshotError } = await supabase
+      .from("import_batches")
+      .update({ raw_snapshot: snapshots })
+      .eq("id", batch.id)
+      .eq("status", "importing");
+    if (snapshotError) throw snapshotError;
 
     const insertRows = [];
     const seenEntities = new Map<string, number>();
@@ -287,9 +322,24 @@ Deno.serve(async (request) => {
       mapping.code === "DS_TEAM"
     )?.normalized.rows ?? [];
     const bestTeam = deriveBestTeamContributions(teamRows);
-    const qlcn = deriveQlcnAwardsFromContributions(managerRows, bestTeam, 3);
+    const qlcn = deriveQlcnAwards(managerRows, 3);
     const team = deriveTeamAwardsFromContributions(bestTeam, 10);
     const leader = deriveLeaderAwards(teamRows, 10);
+    const reconciliation = reconcileRecognitionSourceTotals(
+      managerRows,
+      teamRows,
+    );
+    const {
+      managerMetricTotalVnd,
+      bestTeamMetricTotalVnd,
+      differenceVnd,
+    } = reconciliation;
+    if (reconciliation.warning) {
+      warnings.push({
+        category: "RECONCILIATION",
+        ...reconciliation.warning,
+      });
+    }
     bestTeam.warnings.forEach((warning) =>
       warnings.push({ category: "BEST_TEAM", ...warning })
     );
@@ -373,12 +423,12 @@ Deno.serve(async (request) => {
         display_revenue: award.displayRevenue,
         needs_review: award.needsReview,
         metadata: {
-          calculation: "SUM(DS-TEAM.GDTC XÉT BEST TEAM) grouped by DS-KV QLCN",
+          calculation:
+            "SUM(DS-KV.TỔNG GDTC+HC Tn) grouped by QLCN MNV; manual Bảng Đấu",
           managerKey: award.managerKey,
           regionCodes: award.regionCodes,
           branchBreakdown: award.branchBreakdown,
           managerSourceRowKeys: award.managerSourceRowKeys,
-          teamSourceRowKeys: award.teamSourceRowKeys,
           sourceRowKeys: award.sourceRowKeys,
           boardSource: award.boardSource,
           derivationVersion: QLCN_DERIVATION_VERSION,
@@ -444,7 +494,8 @@ Deno.serve(async (request) => {
         display_revenue: award.displayRevenue,
         needs_review: award.needsReview,
         metadata: {
-          calculation: "SUM per MNV; prefer DS-TEAM.GDTC TÍNH TN, fallback GDTC XÉT BEST TEAM",
+          calculation:
+            "SUM(DS-TEAM.GDTC XÉT BEST TEAM) per Leader MNV; manual Bảng Đấu",
           boardSource: award.boardSource,
           branchCodes: award.branchCodes,
           teamCodes: award.teamCodes,
@@ -478,7 +529,8 @@ Deno.serve(async (request) => {
       })
     );
 
-    const finalStatus = warnings.length ? "needs_review" : "validated";
+    const finalStatus = resolveImportStatus(operator.scheduled, warnings.length);
+    const observedAt = trigger.observedAt ?? new Date().toISOString();
     const { error: updateError } = await supabase
       .from("import_batches")
       .update({
@@ -486,7 +538,7 @@ Deno.serve(async (request) => {
         row_count: insertRows.length,
         warning_count: warnings.length,
         warnings,
-        source_updated_at: new Date().toISOString(),
+        source_updated_at: observedAt,
       })
       .eq("id", batch.id);
     if (updateError) throw updateError;
@@ -508,6 +560,13 @@ Deno.serve(async (request) => {
         leaderCandidateCount: leader.candidates.length,
         leaderAwardCount: leaderAwardResults.length,
         sourceHash,
+        trigger,
+        reviewRequired: operator.scheduled,
+        reconciliation: {
+          managerMetricTotalVnd,
+          bestTeamMetricTotalVnd,
+          differenceVnd,
+        },
       },
     });
 
@@ -520,6 +579,11 @@ Deno.serve(async (request) => {
         warningCount: warnings.length,
       },
       sourceHash,
+      reconciliation: {
+        managerMetricTotalVnd,
+        bestTeamMetricTotalVnd,
+        differenceVnd,
+      },
       qlcn: {
         candidateCount: qlcn.candidates.length,
         awardCount: qlcnAwardResults.length,

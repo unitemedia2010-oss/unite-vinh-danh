@@ -1,4 +1,4 @@
-name: Deploy Unite Recognition Demo
+name: Deploy Unite Recognition Web
 
 on:
   push:
@@ -62,7 +62,7 @@ jobs:
               ;;
           esac
 
-      - name: Build web demo
+      - name: Build web app
         run: npm run build
         working-directory: apps/web-control
         env:

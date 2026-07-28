@@ -320,8 +320,9 @@ const webSlideFromItem = (value: unknown, index: number): PlaylistDraftItem | nu
 }
 
 /**
- * Strictly accepts manifests produced by buildDemoReleaseManifest. Returning
- * null leaves the last playable local release untouched.
+ * Strictly accepts manifests produced by buildReleaseManifest (including the
+ * explicitly labeled demo helper). Returning null leaves the last playable
+ * local release untouched.
  */
 export const playlistConfigFromReleaseManifest = (
   manifest: UnknownRecord,

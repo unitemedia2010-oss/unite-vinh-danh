@@ -1,14 +1,26 @@
 {
-  "name": "Unite Recognition TV",
-  "short_name": "Unite TV",
-  "description": "Màn hình vinh danh và truyền thông nội bộ Unite Group",
+  "name": "Unite Group · Bảng vinh danh",
+  "short_name": "Unite Vinh Danh",
+  "description": "Xem bảng vinh danh Unite Group trên TV, máy tính và điện thoại",
   "lang": "vi",
   "display": "standalone",
-  "orientation": "landscape",
+  "orientation": "any",
   "background_color": "#07090d",
   "theme_color": "#090b10",
   "start_url": "./#/screen",
   "scope": "./",
+  "shortcuts": [
+    {
+      "name": "Bản chia sẻ",
+      "short_name": "Vinh danh",
+      "url": "./#/share"
+    },
+    {
+      "name": "Màn hình TV",
+      "short_name": "TV",
+      "url": "./#/screen"
+    }
+  ],
   "icons": [
     {
       "src": "./unite-mark.svg",

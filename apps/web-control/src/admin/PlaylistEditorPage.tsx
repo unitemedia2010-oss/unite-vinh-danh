@@ -402,7 +402,7 @@ export function PlaylistEditorPage({ notify }: { notify: (message: string) => vo
         </div>
         <div className="playlist-summary__actions">
           <button className="button button--secondary" onClick={reset}><RotateCcw size={16} /> Đặt lại</button>
-          <button className="button button--secondary" onClick={openPreview}><MonitorPlay size={16} /> Xem TV</button>
+          <button className="button button--secondary" onClick={openPreview}><MonitorPlay size={16} /> Xem thử TV (DEMO)</button>
           <button className="button button--secondary" onClick={() => void loadDraft()} disabled={Boolean(cloudBusy)}>
             <CloudDownload size={16} /> {cloudBusy === 'load' ? 'Đang tải…' : 'Tải từ Cloud'}
           </button>
@@ -516,7 +516,7 @@ export function PlaylistEditorPage({ notify }: { notify: (message: string) => vo
                   </div>
                   <div className="slide-mini-preview__time">{selected.duration} GIÂY</div>
                 </div>
-                <button className="button button--wide button--secondary" onClick={openPreview}><MonitorPlay size={16} /> Xem trang này toàn màn hình</button>
+                <button className="button button--wide button--secondary" onClick={openPreview}><MonitorPlay size={16} /> Xem thử toàn màn hình (DEMO)</button>
               </section>
 
               <section className="panel inspector-card">

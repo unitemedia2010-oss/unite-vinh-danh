@@ -91,12 +91,34 @@ export function normalizeText(value: unknown): string {
     .toUpperCase();
 }
 
-export function extractPeriod(value: string): string | null {
+function extractExplicitPeriod(value: string): string | null {
   const match = value.match(/(?:THÁNG\s*|T\s*)(\d{1,2})\s*\/\s*(\d{4})/iu);
   if (!match) return null;
   const month = Number(match[1]);
   if (month < 1 || month > 12) return null;
   return `${match[2]}-${String(month).padStart(2, "0")}`;
+}
+
+export function extractPeriod(value: string): string | null {
+  const explicit = extractExplicitPeriod(value);
+  if (explicit) return explicit;
+  const dated = value.match(/(?:^|\D)(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{4})(?:\D|$)/u);
+  const month = Number(dated?.[2]);
+  const year = dated?.[3];
+  if (!year) return null;
+  if (month < 1 || month > 12) return null;
+  return `${year}-${String(month).padStart(2, "0")}`;
+}
+
+function extractYear(value: string): string | null {
+  return value.match(/(?:^|\D)(\d{4})(?:\D|$)/u)?.[1] ?? null;
+}
+
+function extractMetricMonth(value: string): number | null {
+  const match = normalizeText(value).match(/(?:^|\s)T\s*(\d{1,2})$/u);
+  if (!match) return null;
+  const month = Number(match[1]);
+  return month >= 1 && month <= 12 ? month : null;
 }
 
 export function parseInteger(value: unknown): number | null {
@@ -124,24 +146,34 @@ export function formatVnd(value: number | string | bigint | null): string | null
   return `${sign}${digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".")} VNĐ`;
 }
 
-function findColumn(headers: string[], ruleInput: ColumnRule | string): number {
+function findColumns(headers: string[], ruleInput: ColumnRule | string): number[] {
   const rule: ColumnRule = typeof ruleInput === "string" ? { exact: ruleInput } : ruleInput;
   if (rule.exact) {
     const expected = normalizeText(rule.exact);
-    const index = headers.findIndex((header) => normalizeText(header) === expected);
-    if (index >= 0) return index;
+    const indexes = headers.flatMap((header, index) =>
+      normalizeText(header) === expected ? [index] : []
+    );
+    if (indexes.length) return indexes;
   }
   if (rule.prefix) {
     const expected = normalizeText(rule.prefix);
-    const index = headers.findIndex((header) => normalizeText(header).startsWith(expected));
-    if (index >= 0) return index;
+    const indexes = headers.flatMap((header, index) =>
+      normalizeText(header).startsWith(expected) ? [index] : []
+    );
+    if (indexes.length) return indexes;
   }
   if (rule.regex) {
     const regex = new RegExp(rule.regex, "iu");
-    const index = headers.findIndex((header) => regex.test(header));
-    if (index >= 0) return index;
+    const indexes = headers.flatMap((header, index) =>
+      regex.test(header) ? [index] : []
+    );
+    if (indexes.length) return indexes;
   }
-  return -1;
+  return [];
+}
+
+function findColumn(headers: string[], ruleInput: ColumnRule | string): number {
+  return findColumns(headers, ruleInput)[0] ?? -1;
 }
 
 function firstText(row: string[] | undefined): string {
@@ -186,6 +218,7 @@ export function normalizeSheetRows(matrix: string[][], mapping: SheetMapping): {
   headers: string[];
   rows: NormalizedSheetRow[];
   warnings: string[];
+  blockingErrors: string[];
 } {
   const configuredTitleIndex = Math.max(0, mapping.title_row - 1);
   const configuredHeaderIndex = Math.max(0, mapping.header_row - 1);
@@ -210,16 +243,66 @@ export function normalizeSheetRows(matrix: string[][], mapping: SheetMapping): {
     ? bestCandidate.headers
     : (matrix[configuredHeaderIndex] ?? []);
   const title = bestCandidate?.collapsedTitle || firstText(matrix[configuredTitleIndex]);
+  const filterConfig = mapping.filter_config ?? {};
+  const requiredUniqueColumns = new Set(
+    Array.isArray(filterConfig.requiredUniqueColumns)
+      ? filterConfig.requiredUniqueColumns.filter((field): field is string =>
+        typeof field === "string" && field.trim().length > 0
+      )
+      : [],
+  );
+  const columnMatches = Object.fromEntries(
+    Object.entries(mapping.column_map ?? {}).map(([field, rule]) => [field, findColumns(headers, rule)]),
+  );
   const columnIndexes = Object.fromEntries(
-    Object.entries(mapping.column_map ?? {}).map(([field, rule]) => [field, findColumn(headers, rule)]),
+    Object.entries(columnMatches).map(([field, indexes]) => [
+      field,
+      requiredUniqueColumns.has(field) && indexes.length !== 1
+        ? -1
+        : (indexes[0] ?? -1),
+    ]),
   );
   const warnings: string[] = [];
+  const blockingErrors: string[] = [];
   for (const [field, index] of Object.entries(columnIndexes)) {
     if (index < 0) warnings.push(`${mapping.code}: không tìm thấy cột ${field}`);
   }
+  for (const field of requiredUniqueColumns) {
+    const indexes = columnMatches[field] ?? [];
+    if (indexes.length === 1) continue;
+    const message = indexes.length === 0
+      ? `${mapping.code}: thiếu cột bắt buộc duy nhất ${field}`
+      : `${mapping.code}: có ${indexes.length} cột cùng khớp ${field}; từ chối chọn cột ngầm định`;
+    blockingErrors.push(message);
+  }
+
+  // Daily workbooks title the snapshot with an observation date (for example
+  // "ĐẾN 27/07/2026") while the metric itself may already be for T8. The
+  // configured metric header is authoritative for the recognition month; the
+  // title supplies only the year when it has no explicit T8/2026 period.
+  const periodColumnField = typeof filterConfig.periodColumnField === "string"
+    ? filterConfig.periodColumnField
+    : null;
+  const periodColumnIndex = periodColumnField
+    ? (columnIndexes[periodColumnField] ?? -1)
+    : -1;
+  const metricMonth = periodColumnIndex >= 0
+    ? extractMetricMonth(headers[periodColumnIndex] ?? "")
+    : null;
+  const metricPeriodId = metricMonth && extractYear(title)
+    ? `${extractYear(title)}-${String(metricMonth).padStart(2, "0")}`
+    : null;
+  const explicitTitlePeriodId = extractExplicitPeriod(title);
+  if (
+    explicitTitlePeriodId && metricPeriodId &&
+    explicitTitlePeriodId !== metricPeriodId
+  ) {
+    blockingErrors.push(
+      `${mapping.code}: kỳ tiêu đề ${explicitTitlePeriodId} khác kỳ cột doanh số ${metricPeriodId}`,
+    );
+  }
 
   const stopLabels = (mapping.stop_labels ?? ["TỔNG"]).map(normalizeText);
-  const filterConfig = mapping.filter_config ?? {};
   const numericRankOnly = filterConfig.numericRankOnly !== false;
   const skipBlankName = filterConfig.skipBlankName === true;
   const selectedRevenueField = typeof filterConfig.selectedRevenueField === "string"
@@ -293,7 +376,14 @@ export function normalizeSheetRows(matrix: string[][], mapping: SheetMapping): {
     });
   }
 
-  return { title, periodId: extractPeriod(title), headers, rows: normalizedRows, warnings };
+  return {
+    title,
+    periodId: explicitTitlePeriodId ?? metricPeriodId ?? extractPeriod(title),
+    headers,
+    rows: normalizedRows,
+    warnings,
+    blockingErrors,
+  };
 }
 
 export function googleVisualizationCsvUrl(
@@ -314,8 +404,22 @@ export async function fetchPublicSheetCsv(
   rangeA1?: string | null,
   headerRows?: number | null,
 ): Promise<string[][]> {
-  const response = await fetch(googleVisualizationCsvUrl(spreadsheetId, sheetName, rangeA1, headerRows), {
-    headers: { "User-Agent": "Unite-VinhDanh-Sync/1.0" },
+  const canonicalUrl = googleVisualizationCsvUrl(
+    spreadsheetId,
+    sheetName,
+    rangeA1,
+    headerRows,
+  );
+  // Apps Script can observe a formula recalculation before an intermediary
+  // serves a fresh Visualization CSV. A per-request cache buster plus explicit
+  // no-cache headers makes the Edge Function read the current workbook values.
+  const separator = canonicalUrl.includes("?") ? "&" : "?";
+  const response = await fetch(`${canonicalUrl}${separator}_=${Date.now()}`, {
+    headers: {
+      "User-Agent": "Unite-VinhDanh-Sync/1.0",
+      "Cache-Control": "no-cache, no-store",
+      "Pragma": "no-cache",
+    },
   });
   if (!response.ok) throw new Error(`Không đọc được tab ${sheetName}: HTTP ${response.status}`);
   return parseCsv(await response.text());

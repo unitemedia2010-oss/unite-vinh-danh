@@ -1,11 +1,11 @@
 import { deriveBestTeamContributions } from "../functions/_shared/best-team.ts";
-import { deriveQlcnAwardsFromContributions } from "../functions/_shared/qlcn.ts";
+import { deriveQlcnAwards } from "../functions/_shared/qlcn.ts";
 import { deriveTeamAwardsFromContributions } from "../functions/_shared/team.ts";
 import { deriveLeaderAwards } from "../functions/_shared/leader.ts";
+import { reconcileRecognitionSourceTotals } from "../functions/_shared/reconciliation.ts";
 import {
   fetchPublicSheetCsv,
   normalizeSheetRows,
-  parseInteger,
   type SheetMapping,
 } from "../functions/_shared/sheet.ts";
 
@@ -17,7 +17,7 @@ const managerMapping: SheetMapping = {
   code: "DS_KV",
   entity_type: "branch_manager",
   sheet_name: "DS-KV",
-  range_a1: "B1:N20",
+  range_a1: "B1:N1000",
   title_row: 1,
   header_row: 2,
   data_start_row: 3,
@@ -28,8 +28,15 @@ const managerMapping: SheetMapping = {
     entity_code: { exact: "MNV" },
     source_board_code: { exact: "BẢNG ĐẤU", prefix: "BẢNG ĐẤU" },
     role_code: { exact: "CẤP BẬC" },
+    manager_metric: { prefix: "TỔNG GDTC+HC T" },
   },
-  filter_config: { numericRankOnly: true, skipBlankName: true },
+  filter_config: {
+    numericRankOnly: true,
+    skipBlankName: false,
+    selectedRevenueField: "manager_metric",
+    periodColumnField: "manager_metric",
+    requiredUniqueColumns: ["manager_metric", "source_board_code"],
+  },
 };
 
 const teamMapping: SheetMapping = {
@@ -47,15 +54,21 @@ const teamMapping: SheetMapping = {
     display_name: { exact: "LEADER" },
     entity_code: { exact: "MNV" },
     source_board_code: { exact: "BẢNG ĐẤU", prefix: "BẢNG ĐẤU" },
-    leader_metric_candidate: { exact: "GDTC TÍNH TN" },
     role_code: { exact: "CẤP BẬC" },
     branch_code: { exact: "KHU VỰC" },
     best_team_metric: { exact: "GDTC XÉT BEST TEAM" },
+    total_gdtc_hc_metric: { prefix: "TỔNG GDTC+HC T" },
   },
   filter_config: {
     numericRankOnly: true,
     skipBlankName: false,
     selectedRevenueField: "best_team_metric",
+    periodColumnField: "total_gdtc_hc_metric",
+    requiredUniqueColumns: [
+      "best_team_metric",
+      "total_gdtc_hc_metric",
+      "source_board_code",
+    ],
   },
 };
 
@@ -76,13 +89,15 @@ const [managerMatrix, teamMatrix] = await Promise.all([
 const managers = normalizeSheetRows(managerMatrix, managerMapping);
 const teams = normalizeSheetRows(teamMatrix, teamMapping);
 const bestTeam = deriveBestTeamContributions(teams.rows);
-const qlcn = deriveQlcnAwardsFromContributions(managers.rows, bestTeam, 3);
+const qlcn = deriveQlcnAwards(managers.rows, 3);
 const team = deriveTeamAwardsFromContributions(bestTeam, 10);
 const leader = deriveLeaderAwards(teams.rows, 10);
-const totalBestTeamVnd = teams.rows.reduce(
-  (sum, row) => sum + (parseInteger(row.metrics.best_team_metric) ?? 0),
-  0,
+const sourceReconciliation = reconcileRecognitionSourceTotals(
+  managers.rows,
+  teams.rows,
 );
+const { managerMetricTotalVnd: totalManagerMetricVnd } = sourceReconciliation;
+const { bestTeamMetricTotalVnd: totalBestTeamVnd } = sourceReconciliation;
 const validTeamContributionVnd = bestTeam.contributions.reduce(
   (sum, contribution) => sum + contribution.revenueVnd,
   0,
@@ -97,14 +112,36 @@ console.log(JSON.stringify(
     spreadsheetId,
     period: managers.periodId ?? teams.periodId,
     sourceRows: { managers: managers.rows.length, teams: teams.rows.length },
+    derivationCounts: {
+      namedManagerRows: managers.rows.filter((row) =>
+        Boolean(row.entityCode && row.displayName)
+      ).length,
+      qlcnCandidates: qlcn.candidates.length,
+      qlcnEligible: qlcn.candidates.filter((candidate) =>
+        candidate.eligible
+      )
+        .length,
+      qlcnAwards: qlcn.awards.length,
+      leaderCandidates: leader.candidates.length,
+      leaderEligible:
+        leader.candidates.filter((candidate) => candidate.eligible).length,
+      leaderAwards: leader.awards.length,
+      teamCandidates: team.candidates.length,
+      teamAwards: team.awards.length,
+    },
+    sourceHeaders: {
+      managers: managers.headers,
+      teams: teams.headers,
+    },
+    blockingErrors: [...managers.blockingErrors, ...teams.blockingErrors],
     reconciliation: {
+      totalManagerMetricVnd,
       totalBestTeamVnd,
+      sourceDifferenceVnd: totalManagerMetricVnd - totalBestTeamVnd,
       validTeamContributionVnd,
       excludedFromTeamRankingVnd: totalBestTeamVnd - validTeamContributionVnd,
       assignedToManagersVnd,
-      unassignedFromQlcnVnd: totalBestTeamVnd - assignedToManagersVnd,
-      validButUnassignedToQlcnVnd: validTeamContributionVnd -
-        assignedToManagersVnd,
+      unassignedFromQlcnVnd: totalManagerMetricVnd - assignedToManagersVnd,
     },
     parserWarnings: [...managers.warnings, ...teams.warnings],
     candidates: qlcn.candidates.map((candidate) => ({

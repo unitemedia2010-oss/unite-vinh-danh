@@ -2,9 +2,16 @@ import { corsHeaders, jsonResponse } from "../_shared/cors.ts";
 import { requireOperator, serviceClient } from "../_shared/auth.ts";
 import { randomPairingCode, randomToken, sha256 } from "../_shared/crypto.ts";
 import { findRejectedReportedReleaseId } from "../_shared/release-validation.ts";
+import {
+  consumeRateLimit,
+  publicManifestEtag,
+  publicManifestMatchesRelease,
+  sanitizePublicManifest,
+  type RateWindow,
+} from "../_shared/public-manifest.ts";
 
 type ScreenRequest = {
-  action?: "register" | "status" | "manifest" | "heartbeat" | "registrations" | "approve" | "revoke";
+  action?: "register" | "status" | "manifest" | "public_manifest" | "heartbeat" | "registrations" | "approve" | "revoke";
   deviceId?: string;
   deviceName?: string;
   deviceType?: "android_tv" | "web" | "signage_box";
@@ -21,6 +28,28 @@ type ScreenRequest = {
 };
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const publicManifestRateWindows = new Map<string, RateWindow>();
+
+function requestIp(request: Request): string {
+  return request.headers.get("cf-connecting-ip")?.trim() ||
+    request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
+    "unknown";
+}
+
+function publicJsonResponse(
+  body: unknown,
+  status = 200,
+  headers: Record<string, string> = {},
+): Response {
+  return new Response(status === 304 ? null : JSON.stringify(body), {
+    status,
+    headers: {
+      ...corsHeaders,
+      "Content-Type": "application/json; charset=utf-8",
+      ...headers,
+    },
+  });
+}
 
 function bearerToken(request: Request): string {
   return (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "").trim();
@@ -95,11 +124,109 @@ async function signedManifest(manifest: Record<string, unknown>) {
   return result;
 }
 
+async function latestPublicManifest(request: Request): Promise<Response> {
+  const nowMs = Date.now();
+  if (publicManifestRateWindows.size > 5000) {
+    for (const [key, window] of publicManifestRateWindows) {
+      if (nowMs - window.startedAt > 60_000) publicManifestRateWindows.delete(key);
+    }
+  }
+  const rate = consumeRateLimit(
+    publicManifestRateWindows,
+    requestIp(request),
+    nowMs,
+    60,
+    60_000,
+  );
+  if (!rate.allowed) {
+    return publicJsonResponse({ error: "RATE_LIMITED" }, 429, {
+      "Cache-Control": "no-store",
+      "Retry-After": String(rate.retryAfterSeconds),
+    });
+  }
+
+  const supabase = serviceClient();
+  const now = new Date(nowMs).toISOString();
+  const { data: releases, error: releaseError } = await supabase
+    .from("releases")
+    .select("id,release_version,period_id,import_batch_id,status,activate_at,manifest,published_at,updated_at")
+    .eq("status", "published")
+    .not("import_batch_id", "is", null)
+    .contains("target_config", { scope: "all" })
+    .or(`activate_at.is.null,activate_at.lte.${now}`)
+    .order("published_at", { ascending: false, nullsFirst: false })
+    .limit(20);
+  if (releaseError) throw releaseError;
+
+  const batchIds = [...new Set(
+    (releases ?? [])
+      .map((release) => release.import_batch_id)
+      .filter((value): value is string => typeof value === "string"),
+  )];
+  let validatedBatchIds = new Set<string>();
+  if (batchIds.length) {
+    const { data: batches, error: batchError } = await supabase
+      .from("import_batches")
+      .select("id")
+      .in("id", batchIds)
+      .eq("status", "validated");
+    if (batchError) throw batchError;
+    validatedBatchIds = new Set((batches ?? []).map((batch) => batch.id));
+  }
+  const release = (releases ?? []).find((candidate) =>
+    typeof candidate.import_batch_id === "string" &&
+    validatedBatchIds.has(candidate.import_batch_id) &&
+    publicManifestMatchesRelease(
+      candidate.manifest,
+      candidate.import_batch_id,
+      candidate.period_id,
+    )
+  );
+  if (!release) {
+    return publicJsonResponse({
+      release: null,
+      serverTime: now,
+    }, 200, {
+      "Cache-Control": "public, max-age=10, s-maxage=10, stale-while-revalidate=30",
+    });
+  }
+
+  const etag = publicManifestEtag(release.id, release.updated_at);
+  const cacheHeaders = {
+    "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=300",
+    "ETag": etag,
+    "Vary": "If-None-Match",
+  };
+  if (request.headers.get("if-none-match") === etag) {
+    return publicJsonResponse(null, 304, cacheHeaders);
+  }
+  const signed = await signedManifest(release.manifest ?? {});
+  return publicJsonResponse({
+    release: {
+      id: release.id,
+      releaseVersion: release.release_version,
+      periodId: release.period_id,
+      status: "published",
+      activateAt: release.activate_at,
+      publishedAt: release.published_at,
+      updatedAt: release.updated_at,
+      manifest: sanitizePublicManifest(signed),
+    },
+    serverTime: now,
+  }, 200, cacheHeaders);
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (request.method !== "POST") return jsonResponse({ error: "METHOD_NOT_ALLOWED" }, 405);
+  if (request.method !== "POST" && request.method !== "GET") {
+    return jsonResponse({ error: "METHOD_NOT_ALLOWED" }, 405);
+  }
   try {
-    const body = (await request.json().catch(() => ({}))) as ScreenRequest;
+    const body = request.method === "GET"
+      ? { action: new URL(request.url).searchParams.get("action") ?? undefined } as ScreenRequest
+      : (await request.json().catch(() => ({}))) as ScreenRequest;
+    if (body.action === "public_manifest") return await latestPublicManifest(request);
+    if (request.method !== "POST") return jsonResponse({ error: "METHOD_NOT_ALLOWED" }, 405);
     const supabase = serviceClient();
 
     if (body.action === "registrations") {

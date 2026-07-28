@@ -462,7 +462,7 @@ export function ScreenPlayer() {
 
   return (
     <div
-      className={`screen-player screen-player--${slide.kind} ${!slide.showHeader ? 'screen-player--no-header' : ''} ${!slide.showFooter ? 'screen-player--no-footer' : ''}`}
+      className={`screen-player screen-player--${slide.kind} ${previewMode ? 'screen-player--demo' : ''} ${!slide.showHeader ? 'screen-player--no-header' : ''} ${!slide.showFooter ? 'screen-player--no-footer' : ''}`}
       onMouseMove={() => setControls(true)}
     >
       <div className="screen-noise" />
@@ -519,6 +519,13 @@ export function ScreenPlayer() {
           <div className="screen-progress-dots">{slides.map((item, position) => <button key={item.id} className={position === index ? 'active' : ''} onClick={() => setIndex(position)} aria-label={`Đến slide ${position + 1}`} />)}</div>
           <div className="screen-footer__now"><span>{index + 1}/{slides.length}</span><strong>{slide.headline}</strong></div>
         </footer>
+      )}
+
+      {previewMode && (
+        <div className="screen-demo-warning" role="note">
+          <strong>DEMO</strong>
+          <span>DỮ LIỆU DEMO · KHÔNG DÙNG ĐỂ CHIA SẺ</span>
+        </div>
       )}
 
       <div className={`screen-controls ${controls ? 'visible' : ''}`}>

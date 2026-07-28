@@ -32,6 +32,7 @@ import {
   Rocket,
   Search,
   Settings2,
+  Share2,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
@@ -96,13 +97,13 @@ const pageTitles: Record<Page, { eyebrow: string; title: string; description: st
   settings: { eyebrow: 'CẤU HÌNH HỆ THỐNG', title: 'Kết nối & quyền truy cập', description: 'Trạng thái Supabase, nguồn Sheet và cài đặt phát mặc định.' },
 }
 
-function HeaderActions({ onOpenScreen }: { onOpenScreen: () => void }) {
+function HeaderActions({ onOpenShare }: { onOpenShare: () => void }) {
   return (
     <div className="header-actions">
       <button className="icon-button" title="Tìm kiếm"><Search size={18} /></button>
       <button className="icon-button has-alert" title="Thông báo"><Bell size={18} /><i /></button>
-      <button className="button button--secondary button--screen" onClick={onOpenScreen}>
-        <CirclePlay size={17} /> Mở màn hình TV <ArrowUpRight size={15} />
+      <button className="button button--secondary button--screen" onClick={onOpenShare} title="Link công khai chỉ hiển thị dữ liệu đã phát hành">
+        <Share2 size={17} /> Mở link chia sẻ <ArrowUpRight size={15} />
       </button>
       <button className="profile-chip">
         <span>MA</span>
@@ -135,8 +136,12 @@ export function AdminApp() {
     window.setTimeout(() => setToast(''), 3200)
   }
 
-  const openScreen = () => {
+  const openDemoScreen = () => {
     window.open(`${window.location.href.split('#')[0]}#/screen?branch=br-01&preview=1`, '_blank', 'noopener,noreferrer')
+  }
+
+  const openShare = () => {
+    window.open(`${window.location.href.split('#')[0]}#/share`, '_blank', 'noopener,noreferrer')
   }
 
   const meta = pageTitles[page]
@@ -179,7 +184,7 @@ export function AdminApp() {
       <main className="admin-main">
         <header className="topbar">
           <div className="topbar__mobile"><button className="icon-button" onClick={() => setSidebarOpen(true)}><Menu size={20} /></button><Brand compact /></div>
-          <HeaderActions onOpenScreen={openScreen} />
+          <HeaderActions onOpenShare={openShare} />
         </header>
         <div className="admin-content">
           <div className="page-heading">
@@ -191,7 +196,7 @@ export function AdminApp() {
           {page === 'imports' && <ImportsPage notify={notify} />}
           {page === 'boards' && <BoardsPage notify={notify} />}
           {page === 'playlist' && <PlaylistPage notify={notify} />}
-          {page === 'devices' && <DevicesPage openScreen={openScreen} notify={notify} />}
+          {page === 'devices' && <DevicesPage openDemoScreen={openDemoScreen} notify={notify} />}
           {page === 'releases' && <ReleasesPage notify={notify} />}
           {page === 'settings' && <SettingsPage notify={notify} />}
         </div>
@@ -213,6 +218,7 @@ function DashboardPage({ navigate, notify }: { navigate: (page: Page) => void; n
           <p>Đủ 9 bảng mẫu để duyệt giao diện. Số liệu FINAL sẽ thay thế sau khi kế toán chốt.</p>
           <div className="release-hero__actions">
             <button className="button button--gold" onClick={() => navigate('releases')}><Rocket size={17} /> Xem bản phát hành</button>
+            <button className="button button--ghost" onClick={() => window.open(`${window.location.href.split('#')[0]}#/share`, '_blank', 'noopener,noreferrer')}><Share2 size={17} /> Link chia sẻ</button>
             <button className="button button--ghost" onClick={() => navigate('playlist')}><ListVideo size={17} /> Chỉnh playlist</button>
           </div>
         </div>
@@ -508,7 +514,7 @@ function BoardsPage({ notify }: { notify: (message: string) => void }) {
         <aside className="review-sidebar">
           <div className="review-card"><div className="review-card__head"><span>THÔNG TIN BẢNG</span><StatusPill tone={usingLiveData ? 'success' : 'info'}>{usingLiveData ? 'SNAPSHOT SUPABASE' : 'DEMO FALLBACK'}</StatusPill></div><dl><div><dt>Nguồn kiểm tra</dt><dd>{selected.sourceRange}</dd></div><div><dt>Số hạng</dt><dd>{selected.honorees.length}</dd></div><div><dt>Avatar có sẵn</dt><dd>{selected.honorees.filter((person) => person.photoUrl).length}/{selected.honorees.length}</dd></div><div><dt>Ghi đè Admin</dt><dd>{usingLiveData ? 'Chỉ đọc' : overrideValue ? '1 trường' : '0 trường'}</dd></div><div><dt>Thời lượng</dt><dd>{selected.honorees.length > 3 ? '18 giây' : '14 giây'}</dd></div></dl></div>
           <div className="review-card"><div className="review-card__head"><span>{usingLiveData ? 'ĐỐI SOÁT SNAPSHOT' : 'CHỈNH SỬA DEMO'}</span><button onClick={toggleDemoOverride} disabled={usingLiveData || !overridePerson}><PencilLine size={15} /> {usingLiveData ? 'Chỉ đọc' : overrideValue ? 'Hoàn tác' : 'Thử ghi đè'}</button></div>{overridePerson ? <div className="override-item"><Avatar person={overridePerson} size="sm" /><div><strong>{overridePerson.name}</strong><small>Doanh số hiển thị{overrideValue ? ' · Đã ghi đè' : ''}</small><b>{formatVnd(overridePerson.revenue)}</b></div><button title="Tùy chọn ghi đè"><MoreHorizontal size={16} /></button></div> : <p className="helper-text"><CloudOff size={15} /> Bảng này chưa có kết quả trong lô mới nhất.</p>}<p className="helper-text"><ShieldCheck size={15} /> {usingLiveData ? 'Kết quả lấy từ award_results, không sửa trực tiếp tại màn hình này.' : `Fallback chỉ để xem giao diện, không được phát hành (${loadError || 'chưa có lô Supabase'}).`}</p></div>
-          <button className="button button--wide button--secondary" onClick={() => window.open(`${window.location.href.split('#')[0]}#/screen?board=${selected.id}&preview=1`, '_blank')}><Eye size={17} /> Xem toàn màn hình TV</button>
+          <button className="button button--wide button--secondary" onClick={() => window.open(`${window.location.href.split('#')[0]}#/screen?board=${selected.id}&preview=1`, '_blank')}><Eye size={17} /> Xem thử TV (DEMO)</button>
         </aside>
       </div>
     </>
@@ -519,7 +525,7 @@ function PlaylistPage({ notify }: { notify: (message: string) => void }) {
   return <PlaylistEditorPage notify={notify} />
 }
 
-function DevicesPage({ openScreen, notify }: { openScreen: () => void; notify: (message: string) => void }) {
+function DevicesPage({ openDemoScreen, notify }: { openDemoScreen: () => void; notify: (message: string) => void }) {
   const [pairingOpen, setPairingOpen] = useState(false)
   const [pairingCode, setPairingCode] = useState('')
   const [screenId, setScreenId] = useState('')
@@ -578,7 +584,7 @@ function DevicesPage({ openScreen, notify }: { openScreen: () => void; notify: (
             <div className="device-card__top"><div className="device-card__screen"><MonitorSmartphone size={29} /><span>{branch.code}</span></div><StatusPill tone={branch.health === 'online' ? 'success' : branch.health === 'warning' ? 'warning' : 'danger'}>{branch.health === 'online' ? 'ONLINE' : branch.health === 'warning' ? 'CẢNH BÁO' : 'OFFLINE'}</StatusPill></div>
             <div className="device-card__title"><h3>{branch.name}</h3>{branch.pilot && <em>PILOT</em>}<p><MapPin size={14} />{branch.address}</p></div>
             <dl><div><dt>Thiết bị</dt><dd>{branch.deviceName}</dd></div><div><dt>Nền tảng</dt><dd>{branch.platform}</dd></div><div><dt>Phiên bản</dt><dd><b>{branch.release}</b>{branch.ready ? <span className="text-success">Sẵn sàng</span> : <span className="text-warning">Cần cập nhật</span>}</dd></div><div><dt>Liên lạc cuối</dt><dd>{branch.lastSeen}</dd></div></dl>
-            <div className="device-card__footer"><button onClick={branch.pilot ? openScreen : () => notify(`Đã gửi lệnh mở player đến ${branch.code} (mô phỏng).`)}><Eye size={16} />Xem player</button><button onClick={() => notify(`Đã gửi lệnh tải lại đến ${branch.code}.`)}><RefreshCw size={16} />Tải lại</button><button><MoreHorizontal size={17} /></button></div>
+            <div className="device-card__footer"><button onClick={branch.pilot ? openDemoScreen : () => notify(`Đã gửi lệnh mở player đến ${branch.code} (mô phỏng).`)}><Eye size={16} />Xem thử (DEMO)</button><button onClick={() => notify(`Đã gửi lệnh tải lại đến ${branch.code}.`)}><RefreshCw size={16} />Tải lại</button><button><MoreHorizontal size={17} /></button></div>
           </article>
         ))}
       </div>

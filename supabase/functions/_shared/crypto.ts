@@ -6,6 +6,25 @@ export async function sha256(value: string): Promise<string> {
     .join("");
 }
 
+/** Compare secret text through fixed-length hashes to avoid an early-exit
+ * comparison leaking how many leading characters matched. */
+export async function timingSafeTextEqual(
+  expected: string,
+  provided: string,
+): Promise<boolean> {
+  const [expectedHash, providedHash] = await Promise.all([
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(expected)),
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(provided)),
+  ]);
+  const left = new Uint8Array(expectedHash);
+  const right = new Uint8Array(providedHash);
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    difference |= left[index] ^ right[index];
+  }
+  return difference === 0;
+}
+
 export function randomToken(byteLength = 32): string {
   const bytes = crypto.getRandomValues(new Uint8Array(byteLength));
   return Array.from(bytes)
