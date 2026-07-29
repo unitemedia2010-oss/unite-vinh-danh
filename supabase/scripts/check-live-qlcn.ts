@@ -4,6 +4,10 @@ import { deriveTeamAwardsFromContributions } from "../functions/_shared/team.ts"
 import { deriveLeaderAwards } from "../functions/_shared/leader.ts";
 import { reconcileRecognitionSourceTotals } from "../functions/_shared/reconciliation.ts";
 import {
+  buildRankingColumnUpdates,
+  parseRankingColumnSelection,
+} from "../functions/_shared/ranking-columns.ts";
+import {
   fetchPublicSheetCsv,
   normalizeSheetRows,
   type SheetMapping,
@@ -11,6 +15,13 @@ import {
 
 const spreadsheetId = Deno.args[0] ??
   "1H0gZ6jW5KKvpP6WvdU07FdamYd8lWsOe9_WmdO6Z5PM";
+const rankingColumns = parseRankingColumnSelection({
+  team: (Deno.args[1] ?? "O").toUpperCase(),
+  manager: (Deno.args[2] ?? "L").toUpperCase(),
+})!;
+const rankingUpdates = buildRankingColumnUpdates(rankingColumns);
+const managerRanking = rankingUpdates.find((item) => item.code === "DS_KV")!;
+const teamRanking = rankingUpdates.find((item) => item.code === "DS_TEAM")!;
 
 const managerMapping: SheetMapping = {
   id: "live-ds-kv",
@@ -32,8 +43,7 @@ const managerMapping: SheetMapping = {
       columnIndex: 12,
     },
     role_code: { exact: "CẤP BẬC" },
-    // DS-KV is fetched as B:N, so accounting column L is index 10.
-    manager_metric: { prefix: "TỔNG GDTC+HC T", columnIndex: 10 },
+    manager_metric: managerRanking.rule,
   },
   filter_config: {
     numericRankOnly: true,
@@ -65,9 +75,9 @@ const teamMapping: SheetMapping = {
     },
     role_code: { exact: "CẤP BẬC" },
     branch_code: { exact: "KHU VỰC" },
-    // DS-TEAM is fetched as B:S: accounting column O is index 13 and the
-    // month-bearing TỔNG GDTC+HC column N is index 12.
-    best_team_metric: { exact: "GDTC XÉT BEST TEAM", columnIndex: 13 },
+    // The month-bearing TỔNG GDTC+HC column N stays at index 12 even when
+    // Admin chooses M instead of O as the ranking metric.
+    best_team_metric: teamRanking.rule,
     total_gdtc_hc_metric: { prefix: "TỔNG GDTC+HC T", columnIndex: 12 },
   },
   filter_config: {
@@ -106,6 +116,10 @@ const leader = deriveLeaderAwards(teams.rows, 10);
 const sourceReconciliation = reconcileRecognitionSourceTotals(
   managers.rows,
   teams.rows,
+  {
+    managerLabel: managerRanking.label,
+    teamLabel: teamRanking.label,
+  },
 );
 const { managerMetricTotalVnd: totalManagerMetricVnd } = sourceReconciliation;
 const { bestTeamMetricTotalVnd: totalBestTeamVnd } = sourceReconciliation;
@@ -123,6 +137,11 @@ const assignedToManagersVnd = qlcn.candidates.filter((candidate) =>
 console.log(JSON.stringify(
   {
     spreadsheetId,
+    rankingColumns,
+    rankingLabels: {
+      manager: managerRanking.label,
+      team: teamRanking.label,
+    },
     period: managers.periodId ?? teams.periodId,
     sourceRows: { managers: managers.rows.length, teams: teams.rows.length },
     derivationCounts: {

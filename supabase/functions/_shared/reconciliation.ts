@@ -23,6 +23,10 @@ function sumValidMetric(rows: NormalizedSheetRow[], field: string): number {
 export function reconcileRecognitionSourceTotals(
   managerRows: NormalizedSheetRow[],
   teamRows: NormalizedSheetRow[],
+  labels: {
+    managerLabel?: string;
+    teamLabel?: string;
+  } = {},
 ): RecognitionSourceReconciliation {
   const managerMetricTotalVnd = sumValidMetric(
     managerRows,
@@ -35,7 +39,9 @@ export function reconcileRecognitionSourceTotals(
   const differenceVnd = managerMetricTotalVnd - bestTeamMetricTotalVnd;
   const warning = differenceVnd === 0 ? null : {
     code: "SOURCE_TOTAL_MISMATCH" as const,
-    message: "Tổng DS-KV.TỔNG GDTC+HC Tn khác tổng DS-TEAM.GDTC XÉT BEST TEAM.",
+    message: `Tổng ${labels.managerLabel ?? "DS-KV cột L · TỔNG GDTC+HC Tn"} khác tổng ${
+      labels.teamLabel ?? "DS-TEAM cột O · GDTC XÉT BEST TEAM"
+    }.`,
     managerMetricTotalVnd,
     bestTeamMetricTotalVnd,
     differenceVnd,

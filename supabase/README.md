@@ -41,7 +41,10 @@ the title is an observation date; the recognition period comes from the required
 `Tn` metric headers. For example, the live title dated `27/07/2026` with `T8`
 headers resolves to period `2026-08`, not July.
 
-The accounting-owned rules are locked to these columns:
+The Admin can select one of two accounting-approved source columns for each
+ranking family on `#/admin/imports`. The selection is saved atomically in
+`sheet_mappings`, recorded in `audit_logs`, and used by every later manual or
+Apps Script sync:
 
 Column position is authoritative; the visible header is only used to detect
 the `Tn` month and to produce a diagnostic warning. Accounting does not have to
@@ -50,19 +53,20 @@ names `DS-KV` and `DS-TEAM`; when the workbook rolls from `T8` to `T9`, the
 parser keeps reading the same positions and changes the release period from
 `YYYY-08` to `YYYY-09` automatically.
 
-- QLCN uses `DS-KV` column L, `TỔNG GDTC+HC Tn`, and column N, `Bảng Đấu`.
+- QLCN uses either `DS-KV` column K (`TỔNG CỌC Tn`, early month) or column L
+  (`TỔNG GDTC+HC Tn`, closing), plus column N, `Bảng Đấu`.
   Every valid region row is ranked independently inside its manually assigned
   Thống Soái, Tướng Quân or Thủ Lĩnh board. The same manager `MNV` may therefore
   appear more than once when they manage multiple ranked regions.
-- Leader uses `DS-TEAM` column O, `GDTC XÉT BEST TEAM`, and column S,
-  `BẢNG ĐẤU`. Revenue is summed by Leader `MNV` across distinct teams, then
-  ranked within the manually assigned Kỳ Lân, Phượng Hoàng or Sư Tử board.
-- Top Team ranks valid (`KHU VỰC`, `TEAM`) identities directly by `DS-TEAM`
-  column O. Ranks 1–3 are featured and ranks 4–10 use the list layout.
+- Leader and Top Team use either `DS-TEAM` column M (`TỔNG CỌC Tn`, early
+  month) or column O (`GDTC XÉT BEST TEAM`, closing), plus column S,
+  `BẢNG ĐẤU`. Leader revenue is summed by `MNV` across distinct teams; Team
+  identities remain (`KHU VỰC`, `TEAM`).
 
-No calculation falls back to `TỔNG CỌC`, `GDTC TÍNH TN` or another convenient
-column. A required source column that cannot be resolved, conflicting detected
-periods or a caller-supplied period mismatch blocks the whole sync. Ambiguous
+There is no automatic fallback between these columns: only an authorized Admin,
+Super Admin or Accounting operator can change the allowlisted K/L and M/O
+selection. A required source column that cannot be resolved, conflicting
+detected periods or a caller-supplied period mismatch blocks the whole sync. Ambiguous
 identity and invalid `Bảng Đấu` values exclude only their own row instead of
 guessing or blocking valid neighbours.
 
@@ -86,6 +90,13 @@ writing to the database:
 
 ```powershell
 npx -y deno-bin run --allow-net --allow-import supabase/scripts/check-live-qlcn.ts
+```
+
+The optional second and third arguments audit a specific Admin selection:
+
+```powershell
+# spreadsheet ID, DS-TEAM column, DS-KV column
+npx -y deno-bin run --allow-net --allow-import supabase/scripts/check-live-qlcn.ts 1H0gZ6jW5KKvpP6WvdU07FdamYd8lWsOe9_WmdO6Z5PM M K
 ```
 
 Recommended accounting output tab:

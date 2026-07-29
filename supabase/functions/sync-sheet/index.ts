@@ -143,6 +143,63 @@ async function loadEmployeePhotoPaths(
   return indexEmployeePhotoRows(rows);
 }
 
+function rankingSourceDetails(mapping: SheetMapping): {
+  column: string;
+  label: string;
+} {
+  const filterConfig = mapping.filter_config ?? {};
+  const configuredColumn = typeof filterConfig.rankingSourceColumn === "string"
+    ? filterConfig.rankingSourceColumn.toUpperCase()
+    : "";
+  const configuredLabel = typeof filterConfig.rankingSourceLabel === "string"
+    ? filterConfig.rankingSourceLabel
+    : "";
+  const metricField = mapping.code === "DS_TEAM"
+    ? "best_team_metric"
+    : "manager_metric";
+  const rule = mapping.column_map?.[metricField];
+  const index = typeof rule === "object" ? rule.columnIndex : undefined;
+  if (mapping.code === "DS_TEAM" && index === 11) {
+    if (configuredColumn && configuredColumn !== "M") {
+      throw new Error("RANKING_COLUMN_CONFIG_INVALID");
+    }
+    return {
+      column: "M",
+      label: configuredLabel || "DS-TEAM cột M · TỔNG CỌC Tn",
+    };
+  }
+  if (mapping.code === "DS_KV" && index === 9) {
+    if (configuredColumn && configuredColumn !== "K") {
+      throw new Error("RANKING_COLUMN_CONFIG_INVALID");
+    }
+    return {
+      column: "K",
+      label: configuredLabel || "DS-KV cột K · TỔNG CỌC Tn",
+    };
+  }
+  if (mapping.code === "DS_TEAM" && index === 13) {
+    if (configuredColumn && configuredColumn !== "O") {
+      throw new Error("RANKING_COLUMN_CONFIG_INVALID");
+    }
+    return {
+      column: "O",
+      label: configuredLabel ||
+        "DS-TEAM cột O · GDTC XÉT BEST TEAM",
+    };
+  }
+  if (mapping.code === "DS_KV" && index === 10) {
+    if (configuredColumn && configuredColumn !== "L") {
+      throw new Error("RANKING_COLUMN_CONFIG_INVALID");
+    }
+    return {
+      column: "L",
+      label: configuredLabel ||
+        "DS-KV cột L · TỔNG GDTC+HC Tn",
+    };
+  }
+  throw new Error("RANKING_COLUMN_CONFIG_INVALID");
+}
+
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -209,6 +266,18 @@ Deno.serve(async (request) => {
     if (!mappingRows?.length) {
       return jsonResponse({ error: "NO_ACTIVE_MAPPINGS" }, 409);
     }
+    const activeMappingCodes = new Set(
+      mappingRows.map((mapping) => String(mapping.code)),
+    );
+    if (
+      !activeMappingCodes.has("DS_KV") ||
+      !activeMappingCodes.has("DS_TEAM")
+    ) {
+      return jsonResponse({
+        error: "REQUIRED_RANKING_MAPPINGS_NOT_FOUND",
+        required: ["DS_KV", "DS_TEAM"],
+      }, 409);
+    }
 
     const snapshots = [];
     const allRows: Array<
@@ -249,6 +318,22 @@ Deno.serve(async (request) => {
           });
         });
       });
+      const rankingSource =
+        mapping.code === "DS_KV" || mapping.code === "DS_TEAM"
+          ? rankingSourceDetails(mapping)
+          : null;
+      if (
+        (mapping.code === "DS_KV" || mapping.code === "DS_TEAM") &&
+        !normalized.rows.some((row) =>
+          typeof row.revenueVnd === "number" && row.revenueVnd > 0
+        )
+      ) {
+        blockingErrors.push({
+          mapping: mapping.code,
+          message:
+            `${rankingSource!.label} không có giá trị dương; giữ nguyên bản đang phát.`,
+        });
+      }
       if (
         mapping.filter_config?.requiresRevenueSelection &&
         !mapping.filter_config?.selectedRevenueField
@@ -260,6 +345,7 @@ Deno.serve(async (request) => {
       }
       snapshots.push({
         mappingCode: mapping.code,
+        rankingSource,
         title: normalized.title,
         headers: normalized.headers,
         rows: normalized.rows,
@@ -443,6 +529,18 @@ Deno.serve(async (request) => {
     const teamRows = allRows.find(({ mapping }) =>
       mapping.code === "DS_TEAM"
     )?.normalized.rows ?? [];
+    const managerMapping = allRows.find(({ mapping }) =>
+      mapping.code === "DS_KV"
+    )?.mapping;
+    const teamMapping = allRows.find(({ mapping }) =>
+      mapping.code === "DS_TEAM"
+    )?.mapping;
+    const managerRankingSource = managerMapping
+      ? rankingSourceDetails(managerMapping)
+      : { column: "L", label: "DS-KV cột L · TỔNG GDTC+HC Tn" };
+    const teamRankingSource = teamMapping
+      ? rankingSourceDetails(teamMapping)
+      : { column: "O", label: "DS-TEAM cột O · GDTC XÉT BEST TEAM" };
     const bestTeam = deriveBestTeamContributions(teamRows);
     const qlcn = deriveQlcnAwards(managerRows, 3);
     const team = deriveTeamAwardsFromContributions(bestTeam, 10);
@@ -450,6 +548,10 @@ Deno.serve(async (request) => {
     const reconciliation = reconcileRecognitionSourceTotals(
       managerRows,
       teamRows,
+      {
+        managerLabel: managerRankingSource.label,
+        teamLabel: teamRankingSource.label,
+      },
     );
     const {
       managerMetricTotalVnd,
@@ -549,7 +651,9 @@ Deno.serve(async (request) => {
         needs_review: award.needsReview,
         metadata: {
           calculation:
-            "DS-KV.TỔNG GDTC+HC Tn per source row/region; manual Bảng Đấu",
+            `${managerRankingSource.label} per source row/region; manual Bảng Đấu`,
+          rankingSourceColumn: managerRankingSource.column,
+          rankingSourceLabel: managerRankingSource.label,
           managerKey: award.managerKey,
           regionCodes: award.regionCodes,
           branchBreakdown: award.branchBreakdown,
@@ -583,7 +687,9 @@ Deno.serve(async (request) => {
         display_revenue: award.displayRevenue,
         needs_review: award.needsReview,
         metadata: {
-          calculation: "DS-TEAM.GDTC XÉT BEST TEAM ranked company-wide",
+          calculation: `${teamRankingSource.label} ranked company-wide`,
+          rankingSourceColumn: teamRankingSource.column,
+          rankingSourceLabel: teamRankingSource.label,
           teamKey: award.teamKey,
           leaderCode: award.leaderCode,
           leaderName: award.leaderName,
@@ -623,7 +729,9 @@ Deno.serve(async (request) => {
         needs_review: award.needsReview,
         metadata: {
           calculation:
-            "SUM(DS-TEAM.GDTC XÉT BEST TEAM) per Leader MNV; manual Bảng Đấu",
+            `SUM(${teamRankingSource.label}) per Leader MNV; manual Bảng Đấu`,
+          rankingSourceColumn: teamRankingSource.column,
+          rankingSourceLabel: teamRankingSource.label,
           boardSource: award.boardSource,
           branchCodes: award.branchCodes,
           teamCodes: award.teamCodes,
@@ -774,6 +882,10 @@ Deno.serve(async (request) => {
         })),
       },
       warnings,
+      rankingColumns: {
+        team: teamRankingSource.column,
+        manager: managerRankingSource.column,
+      },
       automaticRelease,
     });
   } catch (error) {
@@ -792,6 +904,13 @@ Deno.serve(async (request) => {
       return jsonResponse({ error: message }, 401);
     }
     if (message === "FORBIDDEN") return jsonResponse({ error: message }, 403);
+    if (message === "RANKING_COLUMN_CONFIG_INVALID") {
+      return jsonResponse({
+        error: "SOURCE_SCHEMA_INVALID",
+        message:
+          "Cấu hình cột xếp hạng nằm ngoài DS-TEAM M/O hoặc DS-KV K/L.",
+      }, 409);
+    }
     return jsonResponse({ error: "SYNC_FAILED", message }, 500);
   }
 });

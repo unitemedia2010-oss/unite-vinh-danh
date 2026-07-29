@@ -53,13 +53,13 @@ batch/release mới, không ghi đè bản đã phát. Admin override nằm ở 
 
 ## Quy tắc đã cấu hình
 
-- QLCN: cộng `DS-TEAM.GDTC XÉT BEST TEAM` của tất cả team theo `KHU VỰC`, rồi ánh xạ
-  khu vực sang QLCN trong `DS-KV`. Một QLCN phụ trách nhiều khu vực được gộp theo `MNV`
-  trước khi xét hạng; không gộp theo tên. Ví dụ Nguyễn Thị Hà (`U177`) xuất hiện ở DOC1
-  và DFC chỉ tạo một kết quả với doanh số bằng tổng của cả hai khu vực.
+- QLCN: xếp từng dòng khu vực trong `DS-KV` bằng cột K (`TỔNG CỌC Tn`) hoặc
+  cột L (`TỔNG GDTC+HC Tn`) do Admin chọn. Cùng một MNV phụ trách hai khu vực
+  vẫn là hai ứng viên độc lập và có thể xuất hiện hai hạng.
 - Hạng QLCN: Thủ Lĩnh 0–299 triệu, Đại Tướng 300–499 triệu, Thống Soái từ 500 triệu;
   tối đa Top 3 mỗi bảng.
-- Team: xếp Top 10 trực tiếp bằng cùng cột `DS-TEAM.GDTC XÉT BEST TEAM`. Một team được
+- Team: xếp Top 10 bằng cột M (`TỔNG CỌC Tn`) hoặc cột O
+  (`GDTC XÉT BEST TEAM`) do Admin chọn. Một team được
   định danh bằng cặp (`KHU VỰC`, `TEAM`), vì cùng mã team ở hai khu vực là hai đối tượng
   khác nhau. Chỉ dòng có `KHU VỰC` và `TEAM` hợp lệ mới được tự động xếp hạng; Top 1–3
   hiển thị nổi bật và hạng 4–10 hiển thị dạng danh sách.

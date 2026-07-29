@@ -64,6 +64,7 @@ import {
 } from '../lib/supabasePlaylistRepository'
 import { EmployeePhotosPage } from './EmployeePhotosPage'
 import { PlaylistEditorPage } from './PlaylistEditorPage'
+import { SheetRankingColumnEditor } from './SheetRankingColumnEditor'
 import {
   approvePairingCode,
   getSupabase,
@@ -74,6 +75,15 @@ import {
   type DeviceRegistration,
   type ScreenOption,
 } from '../lib/supabase'
+import {
+  loadSheetRankingSettings,
+  saveSheetRankingSettings,
+} from '../lib/supabaseSheetRankingRepository'
+import type {
+  SheetRankingSelection,
+  SheetRankingSettings,
+} from '../lib/sheetRankingSettings'
+import { sameSheetRankingSelection } from '../lib/sheetRankingSettings'
 import type { Board } from '../types'
 
 type Page = 'dashboard' | 'imports' | 'boards' | 'photos' | 'playlist' | 'devices' | 'releases' | 'settings'
@@ -363,6 +373,11 @@ function ImportsPage({ notify }: { notify: (message: string) => void }) {
   const [batches, setBatches] = useState<RecognitionImportBatch[]>([])
   const [loadError, setLoadError] = useState('')
   const [approving, setApproving] = useState(false)
+  const [rankingSettings, setRankingSettings] = useState<SheetRankingSettings | null>(null)
+  const [rankingDraft, setRankingDraft] = useState<SheetRankingSelection | null>(null)
+  const [rankingLoading, setRankingLoading] = useState(isSupabaseConfigured)
+  const [rankingSaving, setRankingSaving] = useState(false)
+  const [rankingError, setRankingError] = useState('')
 
   const refreshBatches = async () => {
     if (!isSupabaseConfigured) return
@@ -377,9 +392,41 @@ function ImportsPage({ notify }: { notify: (message: string) => void }) {
     }
   }
 
-  useEffect(() => { void refreshBatches() }, [])
+  const refreshRankingSettings = async () => {
+    if (!isSupabaseConfigured) {
+      setRankingLoading(false)
+      setRankingError('Supabase chưa được cấu hình.')
+      return
+    }
+    setRankingLoading(true)
+    try {
+      const next = await loadSheetRankingSettings()
+      setRankingSettings(next)
+      setRankingDraft({ team: next.team, manager: next.manager })
+      setRankingError('')
+    } catch (error) {
+      setRankingError(error instanceof Error ? error.message : 'Không đọc được cấu hình cột xếp hạng.')
+    } finally {
+      setRankingLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void refreshBatches()
+    void refreshRankingSettings()
+  }, [])
+
+  const hasUnsavedRankingColumns = Boolean(
+    rankingSettings &&
+    rankingDraft &&
+    !sameSheetRankingSelection(rankingSettings, rankingDraft),
+  )
 
   const syncNow = async () => {
+    if (hasUnsavedRankingColumns) {
+      notify('Bạn đang đổi cột xếp hạng. Hãy bấm “Lưu lựa chọn” trước khi đồng bộ.')
+      return
+    }
     setSyncing(true)
     const result = await invokeSheetSync({ force: false })
     setSyncing(false)
@@ -392,6 +439,34 @@ function ImportsPage({ notify }: { notify: (message: string) => void }) {
   }
 
   const latest = batches[0]
+  const saveRankingColumns = async () => {
+    if (!rankingSettings || !rankingDraft) return
+    setRankingSaving(true)
+    setRankingError('')
+    try {
+      const result = await saveSheetRankingSettings(rankingSettings, rankingDraft)
+      setRankingSettings(result.settings)
+      setRankingDraft({
+        team: result.settings.team,
+        manager: result.settings.manager,
+      })
+      notify(result.changed
+        ? 'Đã lưu cột xếp hạng. Bấm “Đồng bộ ngay” nếu muốn áp dụng lên bảng đang phát ngay lúc này.'
+        : 'Cấu hình cột xếp hạng không thay đổi.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setRankingError(message)
+      if (/stale|RANKING_COLUMNS_STALE/i.test(message)) {
+        await refreshRankingSettings()
+        notify('Cấu hình đã được người khác thay đổi. Mình đã tải lại bản mới nhất.')
+      } else {
+        notify(`Không thể lưu cột xếp hạng: ${message}`)
+      }
+    } finally {
+      setRankingSaving(false)
+    }
+  }
+
   const approveLatest = async () => {
     if (!latest || latest.status === 'validated') return
     const note = latest.warningCount > 0
@@ -423,16 +498,29 @@ function ImportsPage({ notify }: { notify: (message: string) => void }) {
       <section className="source-card">
         <div className="source-card__icon"><FileSpreadsheet size={28} /></div>
         <div className="source-card__copy"><div><StatusPill tone={loadError ? 'warning' : 'success'}>{loadError ? 'CHƯA ĐỌC ĐƯỢC SUPABASE' : 'ĐÃ KẾT NỐI NGUỒN'}</StatusPill><StatusPill tone="info">ĐỒNG BỘ CÓ KIỂM SOÁT</StatusPill></div><h2>Dữ liệu doanh số thô từ kế toán</h2><p>Google Sheet ID <code>{sheetSourceId.slice(0, 12)}…</code></p><span><RefreshCw size={14} /> Đồng bộ gần nhất: {latest ? batchDate(latest.importedAt) : loading ? 'Đang tải…' : 'Chưa có lô thật'}</span></div>
-        <div className="source-card__actions"><a className="button button--secondary" href={sourceSheetUrl} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Mở Sheet gốc</a><button className="button button--gold" onClick={syncNow} disabled={syncing}><RefreshCw size={16} className={syncing ? 'spin' : ''} /> {syncing ? 'Đang đọc…' : 'Đồng bộ ngay'}</button></div>
+        <div className="source-card__actions"><a className="button button--secondary" href={sourceSheetUrl} target="_blank" rel="noreferrer"><ExternalLink size={16} /> Mở Sheet gốc</a><button className="button button--gold" onClick={syncNow} disabled={syncing || rankingSaving}><RefreshCw size={16} className={syncing ? 'spin' : ''} /> {syncing ? 'Đang đọc…' : 'Đồng bộ ngay'}</button></div>
       </section>
 
       <div className="content-grid content-grid--imports">
         <section className="panel">
-          <PanelHeader eyebrow="MAPPING ĐANG HOẠT ĐỘNG" title="2 vùng dữ liệu thật đang đọc" action="Chỉnh mapping" onAction={() => notify('Mapping được lưu trong public.sheet_mappings và luôn tạo snapshot có version.')} />
+          <PanelHeader eyebrow="CỘT XẾP HẠNG ĐANG HOẠT ĐỘNG" title="Admin chọn nguồn số liệu cho từng giai đoạn" />
+          <SheetRankingColumnEditor
+            settings={rankingSettings}
+            draft={rankingDraft}
+            loading={rankingLoading}
+            saving={rankingSaving}
+            error={rankingError}
+            onChange={setRankingDraft}
+            onReset={() => rankingSettings && setRankingDraft({
+              team: rankingSettings.team,
+              manager: rankingSettings.manager,
+            })}
+            onSave={() => void saveRankingColumns()}
+          />
           <div className="mapping-list">
             {[
-              ['DS-KV', 'Khu vực và quản lý chi nhánh', 'DS-KV!B1:N20', 'Có cột Bảng Đấu'],
-              ['DS-TEAM', 'Team và thông tin Leader', 'DS-TEAM!B1:S1000', 'Có cột Bảng Đấu'],
+              ['DS-KV', 'Khu vực và quản lý chi nhánh', 'DS-KV!B1:N1000', 'Bảng Đấu: N'],
+              ['DS-TEAM', 'Team và thông tin Leader', 'DS-TEAM!B1:S1000', 'Bảng Đấu: S'],
             ].map(([code, title, range, count]) => (
               <div className="mapping-row" key={code}><span>{code}</span><div><strong>{title}</strong><small>{range}</small></div><em>{count}</em><CircleCheckBig size={18} /></div>
             ))}

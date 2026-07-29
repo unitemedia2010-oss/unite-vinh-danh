@@ -42,10 +42,18 @@ Deno.test("source reconciliation emits an exact difference warning", () => {
   const result = reconcileRecognitionSourceTotals(
     [row({ manager_metric: 60_000_000 })],
     [row({ best_team_metric: 58_710_000 })],
+    {
+      managerLabel: "DS-KV cột K · TỔNG CỌC Tn",
+      teamLabel: "DS-TEAM cột M · TỔNG CỌC Tn",
+    },
   );
 
   assertEquals(result.differenceVnd, 1_290_000);
   assertEquals(result.warning?.code, "SOURCE_TOTAL_MISMATCH");
   assertEquals(result.warning?.managerMetricTotalVnd, 60_000_000);
   assertEquals(result.warning?.bestTeamMetricTotalVnd, 58_710_000);
+  assertEquals(
+    result.warning?.message,
+    "Tổng DS-KV cột K · TỔNG CỌC Tn khác tổng DS-TEAM cột M · TỔNG CỌC Tn.",
+  );
 });

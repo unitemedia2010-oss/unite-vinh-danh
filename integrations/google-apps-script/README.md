@@ -82,13 +82,18 @@ khai** trong Apps Script.
   đổi trực tiếp thường lên trong khoảng 1–2 phút; thay đổi chỉ do công thức
   thường lên trong khoảng 5–6 phút.
 - Backend luôn đọc lại Sheet gốc; không tin dữ liệu được gửi từ trình duyệt.
-- Cột cố định được dùng làm nguồn quyết định:
-  - `DS-KV`: cột L là doanh số QLCN, cột N là `Bảng Đấu`.
-  - `DS-TEAM`: cột N xác định kỳ, cột O là `GDTC XÉT BEST TEAM`, cột S là
-    `Bảng Đấu` Leader.
+- Cột dùng xếp hạng do Admin chọn trong trang **Đồng bộ Google Sheet**:
+  - Chế độ đầu tháng: `DS-KV` cột K và `DS-TEAM` cột M (`TỔNG CỌC`).
+  - Chế độ chốt: `DS-KV` cột L và `DS-TEAM` cột O (`GDTC`).
+  - `DS-KV` cột N và `DS-TEAM` cột S vẫn luôn là `Bảng Đấu`; Admin không thay
+    hai cột này bằng giao diện chọn doanh số.
+  - `DS-TEAM` cột N vẫn xác định kỳ dữ liệu khi cột O không chứa tên tháng.
+- Apps Script chỉ kích hoạt đồng bộ và không có quyền đổi lựa chọn cột. Sau khi
+  Admin lưu, mọi lần đồng bộ tự động kế tiếp sẽ đọc cấu hình mới từ Supabase.
 - Không cần đổi tên sheet hoặc sửa tay tiêu đề cột mỗi tháng. Giữ nguyên hai tab
   `DS-KV` và `DS-TEAM`; khi tiêu đề kỳ tự chuyển từ `T8` sang `T9`, hệ thống vẫn
-  đọc đúng các vị trí L/N/O/S và tự đổi kỳ phát hành từ tháng 8 sang tháng 9.
+  đọc đúng các vị trí K/L/M/N/O/S đã chọn và tự đổi kỳ phát hành từ tháng 8
+  sang tháng 9.
   Nội dung tiêu đề chỉ dùng để nhận biết tháng và cảnh báo, không được phép kéo
   thuật toán sang một cột khác có tên giống nhau.
 - Dòng thiếu tên, mã, khu vực, `Bảng Đấu`, hoặc doanh số không lớn hơn 0 bị loại
