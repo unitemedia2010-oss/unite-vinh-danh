@@ -5,8 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  Crown,
-  Medal,
   RefreshCw,
   Share2,
   ShieldCheck,
@@ -16,6 +14,7 @@ import {
 } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import { Brand } from '../components/Brand'
+import { RankBadge } from '../components/RankBadge'
 import { getRecognitionVisualPreset } from '../data/recognitionPresets'
 import { formatVnd } from '../lib/format'
 import { honoreeContextLabel } from '../lib/honoreeDisplay'
@@ -301,7 +300,7 @@ export function PublicSharePage() {
                 <article className={`share-winner share-winner--${person.rank}`} key={`${person.rank}-${person.name}`}>
                   <div className="share-winner__halo" />
                   <span className="share-winner__medal">
-                    {person.rank === 1 ? <Crown /> : <Medal />}<b>{person.rank}</b>
+                    <RankBadge rank={person.rank} />
                   </span>
                   <Avatar person={person} size="xl" glow={person.rank === 1} presentation="cutout" />
                   <i>HẠNG {person.rank}</i>

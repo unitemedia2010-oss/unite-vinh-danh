@@ -10,7 +10,6 @@ import {
   CircleCheckBig,
   CirclePlay,
   CloudOff,
-  Crown,
   DatabaseZap,
   ExternalLink,
   Eye,
@@ -20,7 +19,6 @@ import {
   Link2,
   ListVideo,
   MapPin,
-  Medal,
   Megaphone,
   Menu,
   MonitorSmartphone,
@@ -44,6 +42,7 @@ import {
 } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import { Brand } from '../components/Brand'
+import { RankBadge } from '../components/RankBadge'
 import { HealthIcon, ReleaseIcon, StatusPill } from '../components/Status'
 import { boards, sourceSheetUrl } from '../data/mock'
 import { saveCloudPlaylistDraft } from '../lib/cloudPlaylistSync'
@@ -521,7 +520,7 @@ function BoardsPage({ notify }: { notify: (message: string) => void }) {
             {previewHonorees.length ? <>
               <div className="preview-podium">
                 {[previewHonorees[1], previewHonorees[0], previewHonorees[2]].filter(Boolean).map((person) => (
-                  <div className={`preview-person preview-person--${person.rank}`} key={person.name}><span className="preview-medal">{person.rank === 1 ? <Crown /> : <Medal />}</span><Avatar person={person} size="xl" glow={person.rank === 1} /><i>HẠNG {person.rank}</i><strong>{person.shortName}</strong><small>{person.team}</small><b>{formatVnd(person.revenue)}</b></div>
+                  <div className={`preview-person preview-person--${person.rank}`} key={person.name}><span className="preview-medal"><RankBadge rank={person.rank} /></span><Avatar person={person} size="xl" glow={person.rank === 1} /><i>HẠNG {person.rank}</i><strong>{person.shortName}</strong><small>{person.team}</small><b>{formatVnd(person.revenue)}</b></div>
                 ))}
               </div>
               {previewHonorees.length > 3 && <div className="preview-ranking"><h3>TOP 10 XUẤT SẮC</h3>{previewHonorees.slice(3, 10).map((person) => <div key={person.rank}><span>{person.rank}</span><Avatar person={person} size="sm" /><p><strong>{person.shortName}</strong><small>{person.team}</small></p><b>{formatVnd(person.revenue)}</b></div>)}</div>}

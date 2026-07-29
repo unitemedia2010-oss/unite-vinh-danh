@@ -4,9 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   CirclePlay,
-  Crown,
   Maximize2,
-  Medal,
   Megaphone,
   MonitorSmartphone,
   Pause,
@@ -22,6 +20,7 @@ import {
 } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import { Brand } from '../components/Brand'
+import { RankBadge } from '../components/RankBadge'
 import { getRecognitionVisualPreset } from '../data/recognitionPresets'
 import { formatClock, formatFullDate, formatVnd } from '../lib/format'
 import { honoreeContextLabel } from '../lib/honoreeDisplay'
@@ -723,7 +722,7 @@ function RecognitionSlide({ board }: { board: Board }) {
           {[top[1], top[0], top[2]].filter(Boolean).map((person, visualIndex) => (
             <article className={`tv-winner tv-winner--${person.rank}`} key={`${person.rank}-${person.name}-${person.branch}`} style={{ '--winner-delay': `${visualIndex * 0.12}s` } as CSSProperties}>
               <div className="tv-winner__halo" />
-              <span className="tv-winner__medal">{person.rank === 1 ? <Crown /> : <Medal />}<b>{person.rank}</b></span>
+              <span className="tv-winner__medal"><RankBadge rank={person.rank} /></span>
               <Avatar person={person} size="xl" glow={person.rank === 1} presentation="cutout" />
               <i>HẠNG {person.rank}</i>
               <h2>{person.shortName}</h2>
