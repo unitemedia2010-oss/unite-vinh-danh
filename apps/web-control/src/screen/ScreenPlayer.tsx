@@ -673,7 +673,7 @@ function RecognitionSlide({ board }: { board: Board }) {
             <article className={`tv-winner tv-winner--${person.rank}`} key={`${person.rank}-${person.name}-${person.branch}`} style={{ '--winner-delay': `${visualIndex * 0.12}s` } as CSSProperties}>
               <div className="tv-winner__halo" />
               <span className="tv-winner__medal">{person.rank === 1 ? <Crown /> : <Medal />}<b>{person.rank}</b></span>
-              <Avatar person={person} size="xl" glow={person.rank === 1} />
+              <Avatar person={person} size="xl" glow={person.rank === 1} presentation="cutout" />
               <i>HẠNG {person.rank}</i>
               <h2>{person.shortName}</h2>
               <p>{honoreeContextLabel(board.group, person)}</p>

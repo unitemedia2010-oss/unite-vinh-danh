@@ -303,7 +303,7 @@ export function PublicSharePage() {
                   <span className="share-winner__medal">
                     {person.rank === 1 ? <Crown /> : <Medal />}<b>{person.rank}</b>
                   </span>
-                  <Avatar person={person} size="xl" glow={person.rank === 1} />
+                  <Avatar person={person} size="xl" glow={person.rank === 1} presentation="cutout" />
                   <i>HẠNG {person.rank}</i>
                   <h2>{person.name}</h2>
                   <p>{honoreeContextLabel(board.group, person)}</p>
