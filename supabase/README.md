@@ -43,6 +43,13 @@ headers resolves to period `2026-08`, not July.
 
 The accounting-owned rules are locked to these columns:
 
+Column position is authoritative; the visible header is only used to detect
+the `Tn` month and to produce a diagnostic warning. Accounting does not have to
+rename a tab or manually correct a header every month. Keep the stable tab
+names `DS-KV` and `DS-TEAM`; when the workbook rolls from `T8` to `T9`, the
+parser keeps reading the same positions and changes the release period from
+`YYYY-08` to `YYYY-09` automatically.
+
 - QLCN uses `DS-KV` column L, `TỔNG GDTC+HC Tn`, and column N, `Bảng Đấu`.
   Every valid region row is ranked independently inside its manually assigned
   Thống Soái, Tướng Quân or Thủ Lĩnh board. The same manager `MNV` may therefore

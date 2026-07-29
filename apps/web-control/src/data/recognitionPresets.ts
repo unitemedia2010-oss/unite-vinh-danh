@@ -1,4 +1,14 @@
-const recognitionAsset = (fileName: string) => `${import.meta.env.BASE_URL}recognition/${fileName}`
+/**
+ * Public recognition images are also injected into CSS custom properties.
+ * With Vite's relative `base: './'`, leaving these URLs relative makes CSS
+ * resolve them beside the hashed stylesheet (`/assets/recognition/...`)
+ * instead of beside index.html. Return an absolute URL in the browser so the
+ * same asset works for both `<img src>` and `background-image`.
+ */
+const recognitionAsset = (fileName: string) => {
+  const path = `${import.meta.env.BASE_URL}recognition/${fileName}`
+  return typeof document === 'undefined' ? path : new URL(path, document.baseURI).href
+}
 
 export interface RecognitionVisualPreset {
   backgroundUrl: string

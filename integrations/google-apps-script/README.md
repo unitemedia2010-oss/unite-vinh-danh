@@ -30,10 +30,49 @@ tới TV cùng trang share.
    - Không bắt buộc `WATCH_RANGES_JSON`; mặc định đã theo dõi
      `DS-KV!B1:N20` và `DS-TEAM!B1:S1000`.
 
-4. Chọn hàm `installVinhDanhSync`, nhấn **Chạy** một lần và cấp quyền. Tải lại
-   Sheet, menu **UNITE Vinh Danh** sẽ xuất hiện.
-5. Chọn **UNITE Vinh Danh → Kiểm tra thay đổi ngay**. Kết quả tốt phải báo HTTP
-   `200` và nêu rõ phiên bản `AUTO-...` đang được dùng hoặc vừa được phát.
+4. Trong Apps Script Editor, chỉ cần chọn hàm `installVinhDanhSync`, nhấn
+   **Chạy** một lần và cấp quyền. Sau đó quay lại tab Google Sheet và tải lại
+   trang; menu **UNITE Vinh Danh** sẽ xuất hiện.
+5. Ngay trong Google Sheet, chọn **UNITE Vinh Danh → Kiểm tra thay đổi ngay**.
+   Sau khi kiểm tra, Sheet luôn mở hộp **Trạng thái đồng bộ**. Lần đầu có thể
+   báo **ĐANG CHỜ DỮ LIỆU ỔN ĐỊNH**; sau tối thiểu 60 giây trigger sẽ tự gửi.
+   Khi đã gửi thành công, hộp trạng thái báo HTTP `200` và nêu rõ phiên bản
+   `AUTO-...` đang được dùng hoặc vừa được phát.
+
+> **Quan trọng:** Không bấm Run hàm `showVinhDanhSyncStatus`/`showSyncStatus`
+> trong Apps Script Editor để chờ một popup trong Editor. Editor chỉ hiện
+> “Đang chạy tập lệnh” rồi “Đã kết thúc”. Hộp thoại thuộc Google Sheet, vì vậy
+> hãy quay lại Sheet và chọn **UNITE Vinh Danh → Xem trạng thái**. Nếu vẫn chạy
+> từ Editor, script sẽ gửi toast nếu nhận diện được tab Sheet đang mở và luôn
+> ghi đầy đủ nội dung trong **Nhật ký thực thi**.
+
+## Không cần URL triển khai Web app
+
+Script này được gắn trực tiếp vào file kế toán và chạy bằng menu cùng trigger,
+không có `doGet`/`doPost`, nên **không cần triển khai Apps Script thành Web
+app**. URL dạng `https://script.google.com/macros/s/.../exec` không được dùng
+trong cấu hình đồng bộ.
+
+`SYNC_ENDPOINT` phải luôn là URL Supabase sau:
+
+```text
+https://hmlnrrgzrrrambxsauec.supabase.co/functions/v1/sync-sheet
+```
+
+Không thay URL này bằng URL Web app Apps Script.
+
+## Xem trạng thái
+
+Trong Google Sheet, chọn **UNITE Vinh Danh → Xem trạng thái**. Hộp trạng thái
+hiển thị:
+
+- trigger đã cài hay chưa;
+- dữ liệu đang chờ ổn định hay đã đồng bộ;
+- lần gần nhất thấy dữ liệu và gửi Supabase;
+- HTTP gần nhất, phiên bản phát và lỗi gần nhất.
+
+Nếu menu chưa xuất hiện, tải lại trang Google Sheet. Không cần bấm **Triển
+khai** trong Apps Script.
 
 ## Cách hoạt động
 
@@ -47,6 +86,11 @@ tới TV cùng trang share.
   - `DS-KV`: cột L là doanh số QLCN, cột N là `Bảng Đấu`.
   - `DS-TEAM`: cột N xác định kỳ, cột O là `GDTC XÉT BEST TEAM`, cột S là
     `Bảng Đấu` Leader.
+- Không cần đổi tên sheet hoặc sửa tay tiêu đề cột mỗi tháng. Giữ nguyên hai tab
+  `DS-KV` và `DS-TEAM`; khi tiêu đề kỳ tự chuyển từ `T8` sang `T9`, hệ thống vẫn
+  đọc đúng các vị trí L/N/O/S và tự đổi kỳ phát hành từ tháng 8 sang tháng 9.
+  Nội dung tiêu đề chỉ dùng để nhận biết tháng và cảnh báo, không được phép kéo
+  thuật toán sang một cột khác có tên giống nhau.
 - Dòng thiếu tên, mã, khu vực, `Bảng Đấu`, hoặc doanh số không lớn hơn 0 bị loại
   riêng. Dòng hợp lệ còn lại vẫn được xếp hạng và phát tự động.
 - Mỗi dòng QLCN/khu vực được xếp độc lập. Cùng một MNV có thể xuất hiện hai lần

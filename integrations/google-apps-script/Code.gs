@@ -34,7 +34,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('UNITE Vinh Danh')
     .addItem('Cài trigger đồng bộ', 'installVinhDanhSync')
-    .addItem('Kiểm tra thay đổi ngay', 'pollVinhDanhSheet')
+    .addItem('Kiểm tra thay đổi ngay', 'pollVinhDanhSheetNow')
     .addItem('Xem trạng thái', 'showVinhDanhSyncStatus')
     .addSeparator()
     .addItem('Gỡ trigger đồng bộ', 'uninstallVinhDanhSync')
@@ -72,6 +72,7 @@ function uninstallVinhDanhSync() {
       ScriptApp.deleteTrigger(trigger);
     }
   });
+  PropertiesService.getDocumentProperties().deleteProperty('INSTALLED_AT');
 }
 
 /** Installable onEdit handler. It only marks dirty and schedules one deferred
@@ -91,6 +92,19 @@ function markVinhDanhDirty() {
 function processVinhDanhSyncDebounced() {
   vdDeleteTriggersByHandler_(VD_HANDLERS.debounce);
   pollVinhDanhSheet();
+}
+
+/**
+ * Menu-only wrapper. Background triggers keep calling pollVinhDanhSheet()
+ * silently, while a person clicking "Kiểm tra thay đổi ngay" always receives
+ * the current status in the spreadsheet after the check finishes.
+ */
+function pollVinhDanhSheetNow() {
+  try {
+    pollVinhDanhSheet();
+  } finally {
+    showVinhDanhSyncStatus();
+  }
 }
 
 /**
@@ -150,14 +164,92 @@ function pollVinhDanhSheet() {
 
 function showVinhDanhSyncStatus() {
   const state = PropertiesService.getDocumentProperties().getProperties();
+  const triggerHandlers = ScriptApp.getProjectTriggers().map(function (trigger) {
+    return trigger.getHandlerFunction();
+  });
+  const triggersReady =
+    triggerHandlers.indexOf(VD_HANDLERS.edit) >= 0 &&
+    triggerHandlers.indexOf(VD_HANDLERS.poll) >= 0;
+  const hasPendingChange = Boolean(
+    state.OBSERVED_FINGERPRINT &&
+      state.OBSERVED_FINGERPRINT !== state.SUBMITTED_FINGERPRINT,
+  );
+  const overallStatus = state.LAST_ERROR
+    ? 'CÓ LỖI'
+    : !triggersReady
+    ? 'CHƯA CÀI ĐỦ TRIGGER'
+    : hasPendingChange
+    ? 'ĐANG CHỜ DỮ LIỆU ỔN ĐỊNH'
+    : state.LAST_HTTP_STATUS
+    ? 'ĐÃ ĐỒNG BỘ'
+    : state.INSTALLED_AT
+    ? 'ĐÃ CÀI, CHƯA GỬI LẦN NÀO'
+    : 'CHƯA CÀI TRIGGER';
   const message = [
-    'Lần thấy dữ liệu: ' + (state.LAST_OBSERVED_AT || 'chưa có'),
-    'Lần gửi Supabase: ' + (state.LAST_SUBMITTED_AT || 'chưa có'),
+    'Trạng thái: ' + overallStatus,
+    'Trigger tự động: ' + (triggersReady ? 'ĐÃ CÀI' : 'CHƯA ĐỦ'),
+    'Đã cài lúc: ' + vdDisplayTimestamp_(state.INSTALLED_AT),
+    'Lần thấy dữ liệu: ' + vdDisplayTimestamp_(state.LAST_OBSERVED_AT),
+    'Lần gửi Supabase: ' + vdDisplayTimestamp_(state.LAST_SUBMITTED_AT),
     'HTTP gần nhất: ' + (state.LAST_HTTP_STATUS || 'chưa có'),
     'Kết quả: ' + (state.LAST_RESULT || 'chưa có'),
     'Lỗi: ' + (state.LAST_ERROR || 'không'),
   ].join('\n');
-  SpreadsheetApp.getUi().alert(message);
+
+  // A toast is visible in the Sheet even when this function was started from
+  // the Apps Script editor. The editor itself can only show execution logs.
+  try {
+    const spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+    if (spreadsheet) {
+      spreadsheet.toast(
+        state.LAST_ERROR || state.LAST_RESULT || overallStatus,
+        'UNITE Vinh Danh · Trạng thái đồng bộ',
+        30,
+      );
+    }
+  } catch (error) {
+    console.log(
+      'Không gửi được toast sang Sheet: ' +
+        String(error && error.message ? error.message : error),
+    );
+  }
+  console.log(message);
+
+  // The full alert is guaranteed when invoked from the custom Sheet menu.
+  // Some editor/background contexts have no visible container UI, so the toast
+  // and execution log above remain the fallback.
+  try {
+    const ui = SpreadsheetApp.getUi();
+    ui.alert(
+      'UNITE Vinh Danh · Trạng thái đồng bộ',
+      message,
+      ui.ButtonSet.OK,
+    );
+  } catch (error) {
+    console.log(
+      'Không mở được hộp thoại ngoài giao diện Sheet: ' +
+        String(error && error.message ? error.message : error),
+    );
+  }
+  return message;
+}
+
+/**
+ * Compatibility alias for older instructions that called showSyncStatus.
+ */
+function showSyncStatus() {
+  return showVinhDanhSyncStatus();
+}
+
+function vdDisplayTimestamp_(value) {
+  if (!value) return 'chưa có';
+  const date = new Date(value);
+  if (isNaN(date.getTime())) return String(value);
+  return Utilities.formatDate(
+    date,
+    Session.getScriptTimeZone() || 'Asia/Ho_Chi_Minh',
+    'dd/MM/yyyy HH:mm:ss',
+  );
 }
 
 function vdConfig_() {

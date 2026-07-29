@@ -221,7 +221,10 @@ function splitCollapsedTitleHeader(
 
 function headerMatchScore(headers: string[], columnMap: SheetMapping["column_map"]): number {
   return Object.values(columnMap ?? {}).reduce(
-    (score, rule) => score + (findColumn(headers, rule) >= 0 ? 1 : 0),
+    // Fixed positions are authoritative only after the header row is found.
+    // Counting a bare columnIndex here would make any sufficiently wide title
+    // row look like a header even when none of its labels match.
+    (score, rule) => score + (findHeaderColumns(headers, rule).length ? 1 : 0),
     0,
   );
 }
