@@ -148,10 +148,11 @@ const fallbackBranch = (branchId: string | null) => {
   }
 }
 
-const shouldUseLiteMode = (params: URLSearchParams) => {
+const shouldUseLiteMode = (params: URLSearchParams, publicTv: boolean) => {
   const override = params.get('lite')?.trim().toLowerCase()
   if (override === '0' || override === 'false' || override === 'full') return false
   if (override === '1' || override === 'true' || override === 'lite') return true
+  if (publicTv) return true
 
   const userAgent = navigator.userAgent
   const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 0
@@ -192,7 +193,7 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
   const preferredBoard = params.get('board')
   const preferredBranch = params.get('branch')
   const publicTv = mode === 'public'
-  const liteMode = useMemo(() => shouldUseLiteMode(params), [params])
+  const liteMode = useMemo(() => shouldUseLiteMode(params, publicTv), [params, publicTv])
   const pairedTvEnabled = !publicTv && isWebScreenClientConfigured()
   const requestedBranch = useMemo(() => fallbackBranch(preferredBranch), [preferredBranch])
   const [index, setIndex] = useState(0)

@@ -196,15 +196,11 @@ a { color: inherit; text-decoration: none; }
 .avatar__photo img { position:absolute; inset:0; width:100%; height:100%; display:block; max-width:none; border-radius:0; object-fit:cover; object-position:center top; }
 .avatar--cutout.avatar--has-photo .avatar__photo {
   z-index:2;
-  inset:-28% -14% 0;
-  border-radius:0;
-  clip-path:polygon(
-    0 0,100% 0,100% 60.94%,89.06% 60.94%,
-    87.73% 71.05%,83.83% 80.47%,77.62% 88.56%,69.53% 94.77%,60.11% 98.67%,50% 100%,
-    39.89% 98.67%,30.47% 94.77%,22.38% 88.56%,16.17% 80.47%,12.27% 71.05%,10.94% 60.94%,0 60.94%
-  );
+  inset:-28% 0 0;
+  clip-path:none;
+  border-radius:0 0 50% 50% / 0 0 39.0625% 39.0625%;
 }
-.avatar--cutout.avatar--has-photo .avatar__photo img { object-fit:contain; object-position:center bottom; transform:scale(1.08); transform-origin:center bottom; filter:drop-shadow(0 9px 10px rgba(0,0,0,.28)); }
+.avatar--cutout.avatar--has-photo .avatar__photo img { inset:auto auto 0 -19.12%; width:138.24%; height:108%; object-fit:contain; object-position:center bottom; transform:none; filter:drop-shadow(0 9px 10px rgba(0,0,0,.28)); }
 .avatar::after { content:""; position: absolute; z-index:4; inset: -5px; border: 1px solid color-mix(in srgb,var(--avatar-accent) 70%,transparent); border-radius: inherit; opacity: .55; pointer-events:none; }
 .avatar--cutout.avatar--has-photo::after { z-index:1; }
 .avatar--sm { width: 25px; height: 25px; font-size: 7px; border-width: 1px; }
