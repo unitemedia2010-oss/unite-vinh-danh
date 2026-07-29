@@ -26,7 +26,13 @@ export function Avatar({
       {hasPhoto
         ? (
           <span className="avatar__photo">
-            <img src={person.photoUrl} alt="" loading="eager" onError={() => setPhotoFailed(true)} />
+            <img
+              src={person.photoUrl}
+              alt=""
+              loading={size === 'sm' ? 'lazy' : 'eager'}
+              decoding="async"
+              onError={() => setPhotoFailed(true)}
+            />
           </span>
         )
         : <span className="avatar__initials">{person.initials}</span>}

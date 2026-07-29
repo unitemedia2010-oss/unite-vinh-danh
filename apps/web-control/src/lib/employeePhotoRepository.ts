@@ -199,7 +199,7 @@ export async function uploadEmployeePhoto(
   const path = `avatars/${crypto.randomUUID()}.${extension}`
   const { error: uploadError } = await supabase.storage
     .from('employee-photos')
-    .upload(path, file, { contentType: file.type, cacheControl: '3600', upsert: false })
+    .upload(path, file, { contentType: file.type, cacheControl: '31536000', upsert: false })
   if (uploadError) throw uploadError
 
   const { data: signed, error: signedError } = await supabase.storage
@@ -234,6 +234,21 @@ export async function uploadEmployeePhoto(
     profile: { ...profile, photoPath: path, photoUrl: signed.signedUrl },
     warning: [awardWarning, cleanupWarning].filter(Boolean).join(' ') || null,
   }
+}
+
+export async function downloadEmployeePhoto(profile: EmployeePhotoProfile): Promise<File> {
+  if (!profile.photoPath) throw new Error(`Nhân sự ${profile.employeeCode} chưa có ảnh.`)
+  const { supabase } = await requireSession()
+  const { data, error } = await supabase.storage
+    .from('employee-photos')
+    .download(profile.photoPath)
+  if (error) throw error
+  const type = data.type || (profile.photoPath.toLowerCase().endsWith('.webp') ? 'image/webp' : 'image/png')
+  const extension = type === 'image/webp' ? 'webp' : 'png'
+  return new File([data], `${profile.employeeCode}.${extension}`, {
+    type,
+    lastModified: Date.now(),
+  })
 }
 
 export async function removeEmployeePhoto(

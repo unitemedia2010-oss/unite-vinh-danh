@@ -32,6 +32,119 @@ const requireString = (record: JsonRecord, key: string) => {
 
 let cachedResult: PublicShareManifestResult | null = null
 let cachedEtag = ''
+type StableAssetUrl = { url: string; expiresAt: number }
+const stableAssetUrls = new Map<string, StableAssetUrl>()
+const STABLE_SIGNED_ASSET_LIFETIME_MS = 23 * 60 * 60 * 1000
+
+const firstRecordString = (record: JsonRecord, keys: string[]) => {
+  for (const key of keys) {
+    const value = stringValue(record[key])
+    if (value) return value
+  }
+  return null
+}
+
+const stableUrlIdentity = (value: string | null) => {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    return `${url.origin}${url.pathname}`
+  } catch {
+    return value.split(/[?#]/, 1)[0] || null
+  }
+}
+
+const stabilizeRecordAssetUrl = (
+  record: JsonRecord,
+  cache: Map<string, StableAssetUrl>,
+  bucket: string,
+  pathKeys: string[],
+  urlKeys: string[],
+  nowMs: number,
+  lifetimeMs: number,
+) => {
+  const currentUrl = firstRecordString(record, urlKeys)
+  const path = firstRecordString(record, pathKeys) || stableUrlIdentity(currentUrl)
+  if (!path) return
+  const cacheKey = `${bucket}:${path}`
+  const previous = cache.get(cacheKey)
+  if (previous && previous.expiresAt > nowMs) {
+    for (const key of urlKeys) {
+      if (record[key] !== undefined) record[key] = previous.url
+    }
+    return
+  }
+
+  if (currentUrl) {
+    cache.set(cacheKey, { url: currentUrl, expiresAt: nowMs + lifetimeMs })
+  } else {
+    cache.delete(cacheKey)
+  }
+}
+
+export const stabilizeManifestAssetUrls = (
+  manifest: JsonRecord,
+  cache: Map<string, StableAssetUrl> = stableAssetUrls,
+  nowMs = Date.now(),
+) => {
+  for (const [key, entry] of cache) {
+    if (entry.expiresAt <= nowMs) cache.delete(key)
+  }
+
+  const webConfig = isRecord(manifest.web_config)
+    ? manifest.web_config
+    : isRecord(manifest.webConfig)
+      ? manifest.webConfig
+      : null
+  const rawItems = Array.isArray(webConfig?.items)
+    ? webConfig.items
+    : Array.isArray(manifest.items)
+      ? manifest.items
+      : Array.isArray(manifest.playlist)
+        ? manifest.playlist
+        : []
+
+  for (const rawItem of rawItems) {
+    if (!isRecord(rawItem)) continue
+    const mediaFields = [
+      [['mediaPath', 'media_path'], ['mediaUrl', 'media_url']],
+      [['backgroundPath', 'background_path'], ['backgroundUrl', 'background_url']],
+      [['logoPath', 'logo_path'], ['logoUrl', 'logo_url']],
+      [['thumbnailPath', 'thumbnail_path'], ['thumbnailUrl', 'thumbnail_url']],
+    ] as const
+    for (const [pathKeys, urlKeys] of mediaFields) {
+      stabilizeRecordAssetUrl(
+        rawItem,
+        cache,
+        'vinhdanh-media',
+        [...pathKeys],
+        [...urlKeys],
+        nowMs,
+        STABLE_SIGNED_ASSET_LIFETIME_MS,
+      )
+    }
+
+    const board = isRecord(rawItem.recognitionBoard)
+      ? rawItem.recognitionBoard
+      : isRecord(rawItem.recognition_board)
+        ? rawItem.recognition_board
+        : null
+    const entries = Array.isArray(board?.entries) ? board.entries : []
+    for (const rawEntry of entries) {
+      if (!isRecord(rawEntry)) continue
+      stabilizeRecordAssetUrl(
+        rawEntry,
+        cache,
+        'employee-photos',
+        ['photoPath', 'photo_path', 'avatarPath', 'avatar_path'],
+        ['avatarUrl', 'avatar_url', 'photoUrl', 'photo_url'],
+        nowMs,
+        STABLE_SIGNED_ASSET_LIFETIME_MS,
+      )
+    }
+  }
+  return manifest
+}
 
 const clientConfig = () => {
   const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
@@ -136,6 +249,7 @@ export const getPublicShareManifest = async (
   if (!isRecord(payload.release) || !isRecord(payload.release.manifest)) {
     throw new PublicShareClientError('INVALID_RESPONSE', 'Bản phát hành không đúng định dạng.')
   }
+  const stableManifest = stabilizeManifestAssetUrls(payload.release.manifest)
 
   const releaseVersion = stringValue(payload.release.releaseVersion)
     || stringValue(payload.release.release_version)
@@ -160,7 +274,7 @@ export const getPublicShareManifest = async (
       periodId,
       status: stringValue(payload.release.status) || 'published',
       activateAt,
-      manifest: payload.release.manifest,
+      manifest: stableManifest,
       updatedAt,
     },
     serverTime,

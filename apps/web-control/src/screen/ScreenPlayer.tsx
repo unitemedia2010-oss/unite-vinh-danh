@@ -57,9 +57,9 @@ type PlayerSlide = PlaylistDraftItem & { board?: Board }
 
 const MAX_TIMER_DELAY_MS = 2_147_000_000
 const brandAsset = (fileName: string) => `${import.meta.env.BASE_URL}brand/${fileName}`
-const VIDEO_POSTER_URL = brandAsset('mascot-wide.png')
-const EVENT_MASCOT_URL = brandAsset('mascot-suit-red.png')
-const ANNOUNCEMENT_MASCOT_URL = brandAsset('mascot-female.png')
+const VIDEO_POSTER_URL = brandAsset('mascot-wide.webp')
+const EVENT_MASCOT_URL = brandAsset('mascot-suit-red.webp')
+const ANNOUNCEMENT_MASCOT_URL = brandAsset('mascot-female.webp')
 
 const standbyItem: PlayerSlide = {
   ...normalizePlaylistItem({
@@ -148,19 +148,58 @@ const fallbackBranch = (branchId: string | null) => {
   }
 }
 
+const shouldUseLiteMode = (params: URLSearchParams) => {
+  const override = params.get('lite')?.trim().toLowerCase()
+  if (override === '0' || override === 'false' || override === 'full') return false
+  if (override === '1' || override === 'true' || override === 'lite') return true
+
+  const userAgent = navigator.userAgent
+  const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 0
+  const processorCount = navigator.hardwareConcurrency ?? 0
+  const tvOrAndroidBrowser = /Android|SMART-TV|SmartTV|Tizen|Web0S|HbbTV|NetCast|AFT|BRAVIA|Viera/i.test(userAgent)
+  const limitedHardware = (deviceMemory > 0 && deviceMemory <= 4) || (processorCount > 0 && processorCount <= 4)
+  return tvOrAndroidBrowser || limitedHardware
+}
+
+function ScreenClock({
+  online,
+  status,
+}: {
+  online: boolean
+  status: string
+}) {
+  const [clockNow, setClockNow] = useState(new Date())
+
+  useEffect(() => {
+    const clock = window.setInterval(() => setClockNow(new Date()), 30_000)
+    return () => window.clearInterval(clock)
+  }, [])
+
+  return (
+    <div className="screen-clock">
+      <div><strong>{formatClock(clockNow)}</strong><span>{formatFullDate(clockNow)}</span></div>
+      <span className={online ? 'online' : 'offline'}>
+        {online ? <Wifi size={16} /> : <WifiOff size={16} />}
+        {status}
+      </span>
+    </div>
+  )
+}
+
 export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
   const params = useMemo(readHashParams, [])
   const preferredItem = params.get('item')
   const preferredBoard = params.get('board')
   const preferredBranch = params.get('branch')
   const publicTv = mode === 'public'
+  const liteMode = useMemo(() => shouldUseLiteMode(params), [params])
   const pairedTvEnabled = !publicTv && isWebScreenClientConfigured()
   const requestedBranch = useMemo(() => fallbackBranch(preferredBranch), [preferredBranch])
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const [muted, setMuted] = useState(false)
   const [online, setOnline] = useState(navigator.onLine)
-  const [now, setNow] = useState(new Date())
+  const [scheduleNow, setScheduleNow] = useState(new Date())
   const [controls, setControls] = useState(true)
   const [remoteConfig, setRemoteConfig] = useState<PlaylistConfig | null>(null)
   const [remoteScreen, setRemoteScreen] = useState<WebScreen | null>(null)
@@ -404,12 +443,12 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
       .filter((item) => item.enabled)
       .filter((item) => isPlayerItemAllowed(mode, item.kind))
       .filter((item) => !enforceAudienceAndSchedule || targetsActiveBranch(item.branchIds, activeBranch, remoteScreen))
-      .filter((item) => !enforceAudienceAndSchedule || isWithinSchedule(item.schedule?.enabled ? item.schedule : config.schedule, now))
+      .filter((item) => !enforceAudienceAndSchedule || isWithinSchedule(item.schedule?.enabled ? item.schedule : config.schedule, scheduleNow))
       .map(toPublishedPlayerSlide)
       .filter((item): item is PlayerSlide => Boolean(item))
     const prioritized = prioritizePlayerSlides(active, preferredItem, preferredBoard, mode)
     return prioritized.length ? prioritized : [{ ...standbyItem }]
-  }, [activeBranch, config.items, config.schedule, mode, now, preferredBoard, preferredItem, remoteScreen])
+  }, [activeBranch, config.items, config.schedule, mode, preferredBoard, preferredItem, remoteScreen, scheduleNow])
 
   useEffect(() => {
     if (index >= slides.length) setIndex(0)
@@ -427,6 +466,8 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
   const resolvedVideoUrl = storedMediaUrl
     || slide.mediaUrl
   const displayedRelease = currentReleaseVersion ?? 'CHƯA NHẬN BẢN'
+  const currentSlideIdRef = useRef(slide.id)
+  currentSlideIdRef.current = slide.id
 
   useEffect(() => {
     if (!pairedTvEnabled || connectionPhase !== 'approved') return
@@ -436,7 +477,7 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
         await sendWebScreenHeartbeat({
           currentReleaseId,
           readyReleaseId,
-          currentItemKey: slide.id,
+          currentItemKey: currentSlideIdRef.current,
           appVersion: 'web-mvp',
           cacheState: {
             mode: 'remote-release',
@@ -477,8 +518,6 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
     currentReleaseVersion,
     readyReleaseId,
     readyReleaseVersion,
-    remoteConfig,
-    slide.id,
     pairedTvEnabled,
   ])
 
@@ -500,13 +539,13 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
   }, [config.repeat, index, paused, slide.duration, slide.id, slides.length])
 
   useEffect(() => {
-    const clock = window.setInterval(() => setNow(new Date()), 1000)
+    const scheduleClock = window.setInterval(() => setScheduleNow(new Date()), 30_000)
     const goOnline = () => setOnline(true)
     const goOffline = () => setOnline(false)
     window.addEventListener('online', goOnline)
     window.addEventListener('offline', goOffline)
     return () => {
-      window.clearInterval(clock)
+      window.clearInterval(scheduleClock)
       window.removeEventListener('online', goOnline)
       window.removeEventListener('offline', goOffline)
     }
@@ -545,11 +584,19 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
     backgroundSize: slide.backgroundFit,
     backgroundPosition: slide.backgroundPosition,
   }
+  const controlsMoveRef = useRef(0)
+  const revealControls = () => {
+    const currentTime = performance.now()
+    if (currentTime - controlsMoveRef.current < 250) return
+    controlsMoveRef.current = currentTime
+    setControls(true)
+  }
 
   return (
     <div
-      className={`screen-player screen-player--${slide.kind} ${!slide.showHeader ? 'screen-player--no-header' : ''} ${!slide.showFooter ? 'screen-player--no-footer' : ''}`}
-      onMouseMove={() => setControls(true)}
+      className={`screen-player screen-player--${slide.kind} ${liteMode ? 'screen-player--lite' : ''} ${!slide.showHeader ? 'screen-player--no-header' : ''} ${!slide.showFooter ? 'screen-player--no-footer' : ''}`}
+      data-performance-mode={liteMode ? 'lite' : 'full'}
+      onMouseMove={revealControls}
     >
       <div className="screen-noise" />
       <div className="screen-grid" />
@@ -557,7 +604,10 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
         <header className="screen-header">
           <Brand inverse />
           <div className="screen-header__center"><span><Radio size={14} /> {remoteConfig ? `VINH DANH · ${(currentReleasePeriod || displayedRelease).toUpperCase()}` : 'VINH DANH · ĐANG TẢI DỮ LIỆU THẬT'}</span><i /></div>
-          <div className="screen-clock"><div><strong>{formatClock(now)}</strong><span>{formatFullDate(now)}</span></div><span className={online ? 'online' : 'offline'}>{online ? <Wifi size={16} /> : <WifiOff size={16} />}{connectionPhase === 'approved' ? connectionMessage : online ? 'Đang kết nối dữ liệu' : 'Đang phát bản đã lưu'}</span></div>
+          <ScreenClock
+            online={online}
+            status={connectionPhase === 'approved' ? connectionMessage : online ? 'Đang kết nối dữ liệu' : 'Đang phát bản đã lưu'}
+          />
         </header>
       )}
 

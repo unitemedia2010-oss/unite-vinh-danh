@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --experimental-strip-types --test src/lib/avatarTransparency.test.mjs src/lib/honoreeDisplay.test.mjs",
+    "test": "node --experimental-strip-types --test src/lib/avatarTransparency.test.mjs src/lib/honoreeDisplay.test.mjs src/lib/publicShareClient.test.mjs",
     "lint": "tsc -b --pretty false",
     "check": "npm run lint && npm run build"
   },

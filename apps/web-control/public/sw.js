@@ -1,4 +1,4 @@
-const CACHE = 'unite-recognition-live-tv-v8'
+const CACHE = 'unite-recognition-live-tv-v9'
 const APP_SHELL = [
   './',
   './index.html',
@@ -6,15 +6,6 @@ const APP_SHELL = [
   './unite-mark.svg',
   './brand/unite-group-logo.png',
   './brand/unite-group-mark-black.png',
-  './recognition/background-red-crystal.png',
-  './recognition/background-gold-crystal.png',
-  './recognition/background-blue-crystal.png',
-  './recognition/badge-ky-lan.png',
-  './recognition/badge-phuong-hoang.png',
-  './recognition/badge-su-tu.png',
-  './recognition/badge-thong-soai.png',
-  './recognition/badge-thu-linh.png',
-  './recognition/badge-tuong-quan.png',
 ]
 
 self.addEventListener('install', (event) => {

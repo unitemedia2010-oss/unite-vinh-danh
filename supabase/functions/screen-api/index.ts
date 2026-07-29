@@ -161,7 +161,7 @@ async function signedManifest(manifest: Record<string, unknown>) {
           : (typeof entry.avatarPath === "string" ? entry.avatarPath : null));
       if (!photoPath) return;
       const { data, error } = await supabase.storage.from("employee-photos")
-        .createSignedUrl(photoPath, 60 * 10);
+        .createSignedUrl(photoPath, 60 * 60 * 24);
       if (!error && data?.signedUrl) {
         entry.avatarUrl = data.signedUrl;
         entry.avatar_url = data.signedUrl;

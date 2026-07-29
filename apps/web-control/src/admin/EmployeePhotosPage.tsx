@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
-import { ImageUp, RefreshCw, Search, ShieldCheck, Trash2, UsersRound } from 'lucide-react'
+import { Gauge, ImageUp, RefreshCw, Search, ShieldCheck, Trash2, UsersRound } from 'lucide-react'
 import { StatusPill } from '../components/Status'
-import { validateTransparentAvatarFile } from '../lib/avatarTransparency'
+import { prepareTransparentAvatarFile } from '../lib/avatarTransparency'
 import {
+  downloadEmployeePhoto,
   loadEmployeePhotoProfiles,
   removeEmployeePhoto,
   uploadEmployeePhoto,
@@ -33,6 +34,7 @@ export function EmployeePhotosPage({ notify }: { notify: (message: string) => vo
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [busyCode, setBusyCode] = useState('')
+  const [optimizeProgress, setOptimizeProgress] = useState('')
   const [loading, setLoading] = useState(isSupabaseConfigured)
   const [loadError, setLoadError] = useState('')
 
@@ -86,16 +88,52 @@ export function EmployeePhotosPage({ notify }: { notify: (message: string) => vo
     if (!file) return
     setBusyCode(profile.employeeCode)
     try {
-      const dimensions = await validateTransparentAvatarFile(file)
-      const result = await uploadEmployeePhoto(profile, file)
+      const prepared = await prepareTransparentAvatarFile(file)
+      const result = await uploadEmployeePhoto(profile, prepared.file)
       updateProfile(result.profile)
       const warning = result.warning ? ' Ảnh đã lưu nhưng snapshot Admin chưa cập nhật được.' : ''
-      notify(`Đã lưu ảnh ${profile.fullName} (${dimensions.width} × ${dimensions.height}px). TV nhận ảnh ở lần tải manifest kế tiếp.${warning}`)
+      const resized = prepared.sourceWidth !== prepared.width || prepared.sourceHeight !== prepared.height
+        ? ` từ ${prepared.sourceWidth} × ${prepared.sourceHeight}px`
+        : ''
+      notify(`Đã lưu ảnh TV ${profile.fullName} (${prepared.width} × ${prepared.height}px${resized}). TV nhận ảnh ở lần tải manifest kế tiếp.${warning}`)
     } catch (error) {
       notify(`Không thể tải ảnh: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setBusyCode('')
     }
+  }
+
+  const optimizeExistingPhotos = async () => {
+    const targets = profiles.filter((profile) => profile.photoPath)
+    if (!targets.length) {
+      notify('Chưa có ảnh nhân sự nào cần tối ưu.')
+      return
+    }
+    if (!window.confirm(`Tối ưu ${targets.length} ảnh hiện có cho TV? Ảnh gốc sẽ được thay bằng WebP tối đa 768px để tải nhanh hơn.`)) return
+
+    let completed = 0
+    const failures: string[] = []
+    for (const [targetIndex, profile] of targets.entries()) {
+      setBusyCode(profile.employeeCode)
+      setOptimizeProgress(`${targetIndex + 1}/${targets.length}`)
+      try {
+        const sourceFile = await downloadEmployeePhoto(profile)
+        const prepared = await prepareTransparentAvatarFile(sourceFile)
+        const result = await uploadEmployeePhoto(profile, prepared.file)
+        updateProfile(result.profile)
+        completed += 1
+        if (result.warning) failures.push(`${profile.employeeCode}: ${result.warning}`)
+      } catch (error) {
+        failures.push(`${profile.employeeCode}: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    setBusyCode('')
+    setOptimizeProgress('')
+    notify(
+      failures.length
+        ? `Đã tối ưu ${completed}/${targets.length} ảnh. ${failures.length} ảnh cần kiểm tra lại.`
+        : `Đã tối ưu đủ ${completed} ảnh cho TV. Link TV sẽ nhận ảnh nhẹ ở lần tải dữ liệu kế tiếp.`,
+    )
   }
 
   const removePhoto = async (profile: EmployeePhotoProfile) => {
@@ -129,7 +167,8 @@ export function EmployeePhotosPage({ notify }: { notify: (message: string) => vo
         </div>
         <div className="photo-guide__rules">
           <strong><ShieldCheck size={16} /> App kiểm tra nền trong suốt</strong>
-          <span>Tối đa 20 MB · 4096 × 4096 px</span>
+          <span>Tự tối ưu WebP · cạnh dài tối đa 768 px</span>
+          <span>File đầu vào tối đa 20 MB · 4096 × 4096 px</span>
           <span>Không nhận JPG có nền liền</span>
         </div>
       </section>
@@ -154,7 +193,8 @@ export function EmployeePhotosPage({ notify }: { notify: (message: string) => vo
             ))}
           </div>
           <label className="photo-search"><Search size={16} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Tìm tên, MNV, Team, khu vực…" /></label>
-          <button className="button button--secondary" onClick={() => void refresh()} disabled={loading}><RefreshCw size={16} className={loading ? 'spin' : ''} /> Tải lại</button>
+          <button className="button button--gold" onClick={() => void optimizeExistingPhotos()} disabled={Boolean(optimizeProgress) || loading}><Gauge size={16} /> {optimizeProgress ? `Đang tối ưu ${optimizeProgress}` : 'Tối ưu ảnh TV'}</button>
+          <button className="button button--secondary" onClick={() => void refresh()} disabled={loading || Boolean(optimizeProgress)}><RefreshCw size={16} className={loading ? 'spin' : ''} /> Tải lại</button>
         </div>
 
         {loadError && <div className="photo-state photo-state--error"><UsersRound size={28} /><strong>Chưa tải được danh sách nhân sự</strong><span>{loadError}</span></div>}
@@ -163,7 +203,7 @@ export function EmployeePhotosPage({ notify }: { notify: (message: string) => vo
 
         {!loadError && !loading && visibleProfiles.length > 0 && <div className="photo-profile-grid">
           {visibleProfiles.map((profile) => {
-            const busy = busyCode === profile.employeeCode
+            const busy = Boolean(optimizeProgress) || busyCode === profile.employeeCode
             return (
               <article className="photo-profile" key={profile.employeeCode}>
                 <div className={`photo-profile__preview ${profile.photoUrl ? 'has-photo' : ''}`}>

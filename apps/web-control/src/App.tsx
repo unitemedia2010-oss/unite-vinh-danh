@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
-import { AdminApp } from './admin/AdminApp'
-import { ScreenPlayer } from './screen/ScreenPlayer'
-import { PublicSharePage } from './share/PublicSharePage'
+import { lazy, Suspense, useEffect, useState } from 'react'
+
+const AdminApp = lazy(() => import('./admin/AdminApp').then((module) => ({ default: module.AdminApp })))
+const ScreenPlayer = lazy(() => import('./screen/ScreenPlayer').then((module) => ({ default: module.ScreenPlayer })))
+const PublicSharePage = lazy(() => import('./share/PublicSharePage').then((module) => ({ default: module.PublicSharePage })))
 
 const getRoute = () => {
   const hash = window.location.hash.replace(/^#/, '')
@@ -20,7 +21,17 @@ export default function App() {
     return () => window.removeEventListener('hashchange', update)
   }, [])
 
-  if (route === 'share') return <PublicSharePage />
-  if (route === 'tv') return <ScreenPlayer mode="public" />
-  return route === 'screen' ? <ScreenPlayer mode="paired" /> : <AdminApp />
+  const content = route === 'share'
+    ? <PublicSharePage />
+    : route === 'tv'
+      ? <ScreenPlayer mode="public" />
+      : route === 'screen'
+        ? <ScreenPlayer mode="paired" />
+        : <AdminApp />
+
+  return (
+    <Suspense fallback={<div className={`route-loading route-loading--${route}`}><span>UNITE GROUP</span><i /></div>}>
+      {content}
+    </Suspense>
+  )
 }
