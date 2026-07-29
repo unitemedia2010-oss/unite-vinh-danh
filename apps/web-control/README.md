@@ -17,11 +17,12 @@ npm.cmd run dev
 ```
 
 - Admin: `http://localhost:5173/#/admin/dashboard`
-- TV Web Player: `http://localhost:5173/#/screen?branch=br-01`
+- TV trực tuyến, không cần cài app/ghép nối: `http://localhost:5173/#/tv`
+- TV đã quản lý theo chi nhánh: `http://localhost:5173/#/screen?branch=br-01`
 
-Web Player có nút toàn màn hình, chuyển slide tự động, điều khiển âm thanh, video demo và báo trạng thái offline. Production build đăng ký service worker để cache app shell và các tài nguyên cùng origin.
+Route `/tv` luôn lấy bản dữ liệu thật mới nhất đã phát hành cho toàn hệ thống, bỏ qua lịch và giới hạn chi nhánh để TV mở link là phát ngay bảng vinh danh hiện tại. Route này chỉ phát các trang recognition có dataset thật, không phát video/thông báo mẫu, không cần mã ghép nối và không thay dữ liệu thiếu bằng dữ liệu mẫu. Route `/screen` vẫn dành cho TV được Admin ghép nối, đặt lịch, nhắm theo chi nhánh và phát toàn bộ playlist.
 
-Player có video mẫu nhẹ khi chưa cấu hình. Đặt `VITE_DEMO_VIDEO_URL` hoặc tải MP4 riêng trong Admin để thay video mẫu. Player dùng `autoPlay`, `playsInline` và trạng thái mute chung; nếu trình duyệt chặn autoplay có tiếng, màn hình hiện nút **Bắt đầu trình chiếu có âm thanh** để xác nhận một lần bằng thao tác người dùng.
+Player chỉ phát video có trong bản phát hành. Player dùng `autoPlay`, `playsInline` và trạng thái mute chung; nếu trình duyệt chặn autoplay có tiếng, màn hình hiện nút **Bắt đầu trình chiếu có âm thanh** để xác nhận một lần bằng thao tác người dùng.
 
 ## Trình thiết lập playlist
 
@@ -33,7 +34,7 @@ Vào **Nội dung & Playlist** để:
 - Đặt thời lượng, hiệu ứng chuyển, lịch riêng, ngày trong tuần và chi nhánh áp dụng cho từng trang.
 - Đặt lịch mặc định cho toàn playlist và xem tổng thời gian chính xác của một vòng.
 
-Trong demo Web, cấu hình chữ được tự lưu bằng `localStorage`, còn logo/ảnh/video
+Trong trình thiết lập Web, cấu hình chữ được tự lưu bằng `localStorage`, còn logo/ảnh/video
 được lưu dạng Blob trong `IndexedDB`. Hai tab Admin và TV trên **cùng trình
 duyệt** cập nhật tức thì qua `BroadcastChannel` và vẫn giữ cấu hình sau khi tải
 lại.
@@ -52,7 +53,7 @@ bị vẫn đi qua Supabase.
 4. Vào **Cài đặt hệ thống → Supabase Backend** để đăng nhập tài khoản Admin.
 5. `sync-sheet` dùng phiên đăng nhập đó, gửi user JWT trong `Authorization` cùng body `force`, `sourceId` (nếu cấu hình) và `spreadsheetId`.
 6. Deploy ba Edge Functions `sync-sheet`, `screen-api`, `publish-release`.
-7. Mở Web TV bằng route `/screen` không có `preview=1`; TV sẽ hiện mã 6 số. Duyệt mã ở **Thiết bị TV → Ghép nối TV**.
+7. Mở `/tv` để phát ngay bản công khai mới nhất. Chỉ dùng `/screen` khi muốn TV hiện mã 6 số và được quản lý riêng tại **Thiết bị TV → Ghép nối TV**.
 
 Sau khi Supabase CLI đã đăng nhập đúng tài khoản sở hữu OneDrop, có thể deploy
 đúng ba function bằng:
@@ -61,7 +62,8 @@ Sau khi Supabase CLI đã đăng nhập đúng tài khoản sở hữu OneDrop, 
 powershell -ExecutionPolicy Bypass -File ..\..\supabase\deploy-onedrop.ps1
 ```
 
-Khi chưa có biến môi trường, UI chạy ở mock mode để duyệt nghiệp vụ và thiết kế mà không gọi backend thật.
+Khi chưa có biến môi trường hoặc chưa đăng nhập, các màn hình dữ liệu để trống
+và hướng dẫn kết nối Supabase; hệ thống không thay bằng tên hoặc doanh số mẫu.
 
 ## Build
 
@@ -86,11 +88,11 @@ branch / root**, vì root của repo còn chứa trang poster cũ.
    - `VITE_SOURCE_SHEET_ID`: ID Google Sheet kế toán.
 3. Vào **Settings → Pages → Build and deployment**.
 4. Chọn **Source: GitHub Actions**.
-5. Mở tab **Actions**, chạy workflow `Deploy Unite Recognition Demo` hoặc push
+5. Mở tab **Actions**, chạy workflow `Deploy Unite Recognition Web` hoặc push
    một commit mới lên `main`.
 
 Workflow chủ động dừng nếu thiếu một trong ba biến công khai trên để tránh vô tình
-đưa bản `MOCK MODE` lên link chính thức. Vite nhúng các biến `VITE_*` vào JavaScript
+đưa một bản chưa kết nối dữ liệu lên link chính thức. Vite nhúng các biến `VITE_*` vào JavaScript
 phía trình duyệt, vì vậy publishable/anon key không phải secret và dữ liệu phải luôn
 được bảo vệ bằng RLS. Không đưa service-role key, mật khẩu database, access token
 CLI, `SYNC_SHARED_SECRET` hay tài khoản Admin vào source hoặc GitHub Actions.
@@ -99,27 +101,28 @@ App dùng hash route và `base: './'`, nên link project Pages hoạt động �
 
 ```text
 https://<github-user>.github.io/<repo>/#/admin/dashboard
+https://<github-user>.github.io/<repo>/#/tv
 https://<github-user>.github.io/<repo>/#/screen?branch=br-01
 ```
 
 Không đổi sang `BrowserRouter` hoặc base `/`, vì hai cấu hình đó sẽ làm link con
 trên GitHub Project Pages dễ trả về 404 hoặc tải sai asset.
 
-Dữ liệu tháng 08 trong `src/data/mock.ts` được gắn nhãn **DEMO**. Hãy thay bằng
-snapshot FINAL đã được phép công khai trước khi dùng link Pages như bảng chính thức.
+Route `/tv` chỉ nhận release có import batch đã được xác thực từ endpoint
+`public_manifest`; nếu chưa có bản thật thì player hiển thị trạng thái chờ.
 
 ## Phạm vi MVP hiện tại
 
-- Dashboard 9 chi nhánh, có pilot `125 Trần Bình Trọng` và CN09 `683 Âu Cơ Tân Phú`.
+- Dashboard dùng bản phát hành thật mới nhất; trang Thiết bị đọc 9 màn hình trực tiếp từ Supabase.
 - Google Sheet source, mapping, lịch sử import và cảnh báo dữ liệu.
 - Các bảng QLCN/Leader/Sale FT/Sale PT/Team; Top 1–3 nổi bật và hạng 4–10 dạng danh sách.
-- Ghi đè Admin trên bản phát hành, gồm mẫu `156.000.000 VNĐ`.
+- Doanh số hiển thị theo định dạng `156.000.000 VNĐ`; bảng kiểm duyệt là chỉ đọc và truy về lô Sheet.
 - Trình thiết lập playlist Web đầy đủ cho vinh danh/video/thông báo/sự kiện, có tự lưu cục bộ và lưu/tải Cloud.
-- Device health, release readiness, lịch sử và rollback UI.
+- Danh sách màn hình/ghép nối, release readiness và bản đang phát lấy từ Supabase.
 - Đăng nhập Supabase Auth và duyệt mã ghép nối TV thật từ trang Thiết bị.
 - Tạo `READY` và phát release từ Admin; Web/Android TV nhận manifest, signed URL và gửi heartbeat.
 - Web TV Player 16:9 dùng để kiểm tra nhanh trước khi cài Android TV APK.
 
-Dữ liệu bảng, device health và release trong `src/data/mock.ts` là dữ liệu minh họa,
-không phải kết quả chính thức từ Sheet. Chỉ phát dữ liệu thật sau khi import batch
-được duyệt và tài khoản có vai trò `super_admin`, `admin` hoặc `publisher`.
+`src/data/mock.ts` chỉ còn metadata trình bày và cấu hình mặc định của editor.
+Admin, `/tv` và `/share` không dùng người, doanh số, trạng thái thiết bị hoặc release
+trong file này. Chỉ phát dữ liệu thật sau khi import batch được xác thực.

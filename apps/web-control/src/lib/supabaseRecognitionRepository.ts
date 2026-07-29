@@ -98,7 +98,7 @@ type AwardResultRow = {
 
 const requireSession = async () => {
   const supabase = getSupabase()
-  if (!supabase) throw new Error('Supabase chưa được cấu hình — đang dùng dữ liệu mô phỏng.')
+  if (!supabase) throw new Error('Supabase chưa được cấu hình.')
   const { data, error } = await supabase.auth.getSession()
   if (error || !data.session) throw error || new Error('Admin cần đăng nhập để đọc dữ liệu Sheet đã nhập.')
   return { supabase, userId: data.session.user.id }
@@ -188,6 +188,7 @@ const boardsFromResults = async (
           const revenue = Number(row.revenue_vnd ?? 0)
           return {
             rank: row.rank,
+            entityCode: row.entity_code ?? undefined,
             name,
             shortName: typeof metadata.short_name === 'string' ? metadata.short_name : shortName(name),
             role: row.role_label ?? '',

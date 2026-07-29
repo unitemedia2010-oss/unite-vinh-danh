@@ -90,7 +90,7 @@ export const storeImageAsset = async (file: File, purpose: 'background' | 'logo'
 }
 
 export const storeVideoAsset = async (file: File) => {
-  if (!['video/mp4', 'video/webm'].includes(file.type)) throw new Error('Video demo cần định dạng MP4 hoặc WebM.')
+  if (!['video/mp4', 'video/webm'].includes(file.type)) throw new Error('Video cần định dạng MP4 hoặc WebM.')
   const asset: StoredMediaAsset = {
     id: newAssetId(),
     name: file.name,

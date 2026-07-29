@@ -1,4 +1,4 @@
-const CACHE = 'unite-recognition-demo-0826-v7'
+const CACHE = 'unite-recognition-live-tv-v8'
 const APP_SHELL = [
   './',
   './index.html',

@@ -23,7 +23,7 @@ let client: SupabaseClient | null = null
 
 /**
  * Returns a shared browser client only after public environment values exist.
- * UI mock mode remains fully usable without credentials.
+ * Without credentials the UI fails closed and never substitutes recognition data.
  */
 export const getSupabase = (): SupabaseClient | null => {
   if (!isSupabaseConfigured) return null
@@ -39,7 +39,7 @@ export const getSupabase = (): SupabaseClient | null => {
 export const invokeSheetSync = async (options: { force?: boolean } = {}) => {
   const supabase = getSupabase()
   if (!supabase) {
-    return { data: null, error: new Error('Supabase chưa được cấu hình — đang chạy dữ liệu mô phỏng.') }
+    return { data: null, error: new Error('Supabase chưa được cấu hình.') }
   }
 
   const { data: authData, error: authError } = await supabase.auth.getSession()
@@ -59,7 +59,7 @@ export const invokeSheetSync = async (options: { force?: boolean } = {}) => {
 
 const authenticatedClient = async () => {
   const supabase = getSupabase()
-  if (!supabase) throw new Error('Supabase chưa được cấu hình — đang chạy dữ liệu mô phỏng.')
+  if (!supabase) throw new Error('Supabase chưa được cấu hình.')
   const { data, error } = await supabase.auth.getSession()
   if (error || !data.session?.access_token) throw error || new Error('Admin cần đăng nhập trước.')
   return { supabase, token: data.session.access_token }

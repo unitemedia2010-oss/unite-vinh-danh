@@ -101,7 +101,7 @@ try {
             'UNITE VINH DANH - LINK DIEN THOAI (cung Wi-Fi voi may tinh)'
             ''
             "Admin: http://${lanIp}:5173/#/admin/dashboard"
-            "TV demo CN01: http://${lanIp}:5173/#/screen?branch=br-01"
+            "TV truc tuyen: http://${lanIp}:5173/#/tv"
             ''
             'May tinh phai dang mo va app UNITE VINH DANH dang chay.'
         )

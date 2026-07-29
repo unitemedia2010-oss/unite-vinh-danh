@@ -7,18 +7,17 @@ import type {
   PlaylistItem,
   PlaylistKind,
 } from '../types'
-import {
-  DEFAULT_DEMO_VIDEO_URL,
-  normalizePlaylistItem,
-} from './playlistConfig'
+import { normalizePlaylistItem } from './playlistConfig'
 import type {
   JsonObject,
   JsonValue,
   SupabasePlaylistSnapshot,
 } from './supabasePlaylistRepository'
+import { SUPABASE_BOARD_CODE_BY_LOCAL_ID } from './supabasePlaylistRepository'
 
 const MANIFEST_SCHEMA = 'unite-vinhdanh-release'
 const MANIFEST_VERSION = 1
+const LEGACY_SAMPLE_VIDEO_URL = 'https://media.w3.org/2010/05/video/movie_300.mp4'
 
 type UnknownRecord = Record<string, unknown>
 
@@ -113,8 +112,11 @@ const recognitionBoardFromItem = (
       const branch = firstText(entry, 'branch', 'branchName', 'branch_code', 'branchCode')
       const shortName = firstText(entry, 'short_name', 'shortName') || shortNameFromFullName(name)
       const photoUrl = firstText(entry, 'avatar_url', 'avatarUrl', 'photo_url', 'photoUrl')
+      const entityCode = firstText(entry, 'entity_code', 'employee_code', 'employeeCode')
+        || firstText(entry, 'employee_id', 'employeeId').split(':')[0]
       return {
         rank,
+        entityCode: entityCode || undefined,
         name,
         shortName,
         role,
@@ -164,13 +166,17 @@ const recognitionPayload = (
   const board = dataset.boards.find((candidate) => candidate.id === slide.boardId)
   if (!board) return undefined
   return {
+    boardCode: SUPABASE_BOARD_CODE_BY_LOCAL_ID[board.id] ?? board.id,
     period_label: dataset.periodLabel,
     period_id: dataset.periodId,
     import_batch_id: dataset.importBatchId ?? null,
     category_label: board.title,
     entries: board.honorees.map((person) => ({
       rank: person.rank,
-      employee_id: `${board.id}-${person.rank}`,
+      entity_code: person.entityCode ?? '',
+      employee_id: person.entityCode
+        ? `${person.entityCode}:${person.branch || person.team || person.rank}`
+        : `${board.id}:${person.rank}`,
       name: person.name,
       short_name: person.shortName,
       role: person.role,
@@ -198,8 +204,8 @@ export const buildReleaseManifest = (
     .map((slide) => {
       const record = slideRecord.get(slide.id)
       const recognitionBoard = recognitionPayload(slide, dataset)
-      const publicMediaUrl = slide.mediaUrl.trim()
-        || (slide.id === 'pl-10' && slide.kind === 'video' ? DEFAULT_DEMO_VIDEO_URL : '')
+      const requestedMediaUrl = slide.mediaUrl.trim()
+      const publicMediaUrl = requestedMediaUrl === LEGACY_SAMPLE_VIDEO_URL ? '' : requestedMediaUrl
       const announcementBody = slide.kind === 'event'
         ? [slide.body, slide.eventDate, slide.eventTime, slide.location].filter(Boolean).join('\n')
         : slide.body

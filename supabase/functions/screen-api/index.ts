@@ -4,11 +4,16 @@ import { randomPairingCode, randomToken, sha256 } from "../_shared/crypto.ts";
 import { findRejectedReportedReleaseId } from "../_shared/release-validation.ts";
 import {
   consumeRateLimit,
-  publicManifestEtag,
   publicManifestMatchesRelease,
+  publicManifestResponseHeaders,
   sanitizePublicManifest,
   type RateWindow,
 } from "../_shared/public-manifest.ts";
+import {
+  indexEmployeePhotoRows,
+  recognitionEntryEmployeeCode,
+  type EmployeePhotoRow,
+} from "../_shared/employee-photo.ts";
 
 type ScreenRequest = {
   action?: "register" | "status" | "manifest" | "public_manifest" | "heartbeat" | "registrations" | "approve" | "revoke";
@@ -80,6 +85,48 @@ async function signedManifest(manifest: Record<string, unknown>) {
   const supabase = serviceClient();
   const result = structuredClone(manifest);
   const items = (Array.isArray(result.items) ? result.items : result.playlist) as Array<Record<string, unknown>> | undefined;
+  const employeeEntries: Array<{
+    code: string;
+    entry: Record<string, unknown>;
+  }> = [];
+  for (const item of items ?? []) {
+    const board = (item.recognitionBoard ?? item.recognition_board) as Record<string, unknown> | undefined;
+    const boardCode = board?.boardCode ?? board?.board_code;
+    const entries = Array.isArray(board?.entries) ? board.entries as Array<Record<string, unknown>> : [];
+    for (const entry of entries) {
+      const code = recognitionEntryEmployeeCode(boardCode, entry);
+      if (code) employeeEntries.push({ code, entry });
+    }
+  }
+
+  const currentEmployeePhotos = new Map<string, string | null>();
+  const employeeCodes = [...new Set(employeeEntries.map(({ code }) => code))];
+  if (employeeCodes.length) {
+    const { data, error } = await supabase
+      .from("employees")
+      .select("employee_code,photo_path")
+      .in("employee_code", employeeCodes);
+    // A photo-directory error must fail closed for avatars. Keeping the
+    // recognition release available is more important than re-signing a photo
+    // that an Admin may already have removed.
+    if (error) {
+      for (const code of employeeCodes) currentEmployeePhotos.set(code, null);
+    } else {
+      for (const [code, path] of indexEmployeePhotoRows(
+        (data ?? []) as EmployeePhotoRow[],
+      )) {
+        currentEmployeePhotos.set(code, path);
+      }
+    }
+  }
+
+  for (const { code, entry } of employeeEntries) {
+    if (!currentEmployeePhotos.has(code)) continue;
+    const currentPath = currentEmployeePhotos.get(code) ?? "";
+    entry.photoPath = currentPath;
+    entry.photo_path = currentPath;
+  }
+
   await Promise.all((items ?? []).map(async (item) => {
     const requestedBucket = typeof item.bucket === "string" ? item.bucket : "vinhdanh-media";
     if (requestedBucket !== "vinhdanh-media") {
@@ -114,7 +161,7 @@ async function signedManifest(manifest: Record<string, unknown>) {
           : (typeof entry.avatarPath === "string" ? entry.avatarPath : null));
       if (!photoPath) return;
       const { data, error } = await supabase.storage.from("employee-photos")
-        .createSignedUrl(photoPath, 60 * 60 * 24);
+        .createSignedUrl(photoPath, 60 * 10);
       if (!error && data?.signedUrl) {
         entry.avatarUrl = data.signedUrl;
         entry.avatar_url = data.signedUrl;
@@ -186,20 +233,9 @@ async function latestPublicManifest(request: Request): Promise<Response> {
     return publicJsonResponse({
       release: null,
       serverTime: now,
-    }, 200, {
-      "Cache-Control": "public, max-age=10, s-maxage=10, stale-while-revalidate=30",
-    });
+    }, 200, publicManifestResponseHeaders());
   }
 
-  const etag = publicManifestEtag(release.id, release.updated_at);
-  const cacheHeaders = {
-    "Cache-Control": "public, max-age=30, s-maxage=60, stale-while-revalidate=300",
-    "ETag": etag,
-    "Vary": "If-None-Match",
-  };
-  if (request.headers.get("if-none-match") === etag) {
-    return publicJsonResponse(null, 304, cacheHeaders);
-  }
   const signed = await signedManifest(release.manifest ?? {});
   return publicJsonResponse({
     release: {
@@ -213,7 +249,7 @@ async function latestPublicManifest(request: Request): Promise<Response> {
       manifest: sanitizePublicManifest(signed),
     },
     serverTime: now,
-  }, 200, cacheHeaders);
+  }, 200, publicManifestResponseHeaders());
 }
 
 Deno.serve(async (request) => {

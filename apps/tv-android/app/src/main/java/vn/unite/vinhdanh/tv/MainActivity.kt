@@ -25,7 +25,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import vn.unite.vinhdanh.tv.data.DeviceConfig
 import vn.unite.vinhdanh.tv.data.DeviceConfigStore
-import vn.unite.vinhdanh.tv.data.MockReleaseFactory
 import vn.unite.vinhdanh.tv.data.PendingPairing
 import vn.unite.vinhdanh.tv.data.PlaybackSnapshot
 import vn.unite.vinhdanh.tv.data.PlaylistItem
@@ -69,7 +68,6 @@ class MainActivity : Activity() {
     private lateinit var pairingDeviceInfoView: TextView
     private lateinit var pairingStatusView: TextView
     private lateinit var pairNowButton: Button
-    private lateinit var demoButton: Button
     private lateinit var branchAddressView: TextView
     private lateinit var playerStatusView: TextView
     private lateinit var recognitionView: View
@@ -163,7 +161,6 @@ class MainActivity : Activity() {
         pairingDeviceInfoView = findViewById(R.id.pairing_device_info)
         pairingStatusView = findViewById(R.id.pairing_status)
         pairNowButton = findViewById(R.id.pair_now_button)
-        demoButton = findViewById(R.id.demo_button)
         branchAddressView = findViewById(R.id.branch_address)
         playerStatusView = findViewById(R.id.player_status)
         recognitionView = findViewById(R.id.recognition_view)
@@ -211,13 +208,12 @@ class MainActivity : Activity() {
             append(Build.MANUFACTURER)
             append(' ')
             append(Build.MODEL)
-            append("\nChi nhánh mặc định: ")
-            append(MockReleaseFactory.BRANCH_ADDRESS)
+            append("\nChi nhánh: chờ Admin gán khi ghép nối")
         }
         pairingStatusView.text = if (backend.isConfigured) {
             "Sẵn sàng kết nối an toàn với Admin"
         } else {
-            "Chưa cấu hình Supabase · có thể chạy bản demo"
+            "Chưa cấu hình Supabase · TV sẽ không phát cho đến khi được kết nối"
         }
 
         pairNowButton.text = "KIỂM TRA GHÉP NỐI"
@@ -229,22 +225,9 @@ class MainActivity : Activity() {
                 checkPairingStatus()
             }
         }
-        demoButton.setOnClickListener {
-            val config = DeviceConfig(
-                deviceId = deviceId,
-                deviceToken = "demo-${deviceId.take(12)}",
-                screenId = "demo-pilot-screen",
-                branchId = MockReleaseFactory.BRANCH_ID,
-                branchAddress = MockReleaseFactory.BRANCH_ADDRESS
-            )
-            configStore.savePairedConfig(config)
-            startPlayer(config)
-        }
+        pairNowButton.post { pairNowButton.requestFocus() }
         if (backend.isConfigured) {
-            pairNowButton.post { pairNowButton.requestFocus() }
             beginRegistration(deviceId)
-        } else {
-            demoButton.post { demoButton.requestFocus() }
         }
     }
 
@@ -381,15 +364,15 @@ class MainActivity : Activity() {
             cachedCurrent = null
         }
 
-        val initialRelease = cachedCurrent ?: MockReleaseFactory.create().copy(
-            branchId = config.branchId,
-            branchAddress = config.branchAddress
-        )
-        cacheState = if (cachedCurrent != null) "last-known-release" else "mock-fallback"
-        activateRelease(initialRelease, persist = cachedCurrent != null)
+        if (cachedCurrent != null) {
+            activateRelease(cachedCurrent)
+            cacheState = "last-known-release"
+        } else {
+            showReleaseWaitingState(config)
+        }
 
         cachedReady
-            ?.takeUnless { it.sameIdentity(initialRelease) }
+            ?.takeUnless { ready -> cachedCurrent?.sameIdentity(ready) == true }
             ?.let(::activateOrSchedule)
 
         heartbeatScheduler?.close()
@@ -460,7 +443,11 @@ class MainActivity : Activity() {
                         }
                         consecutiveRefreshFailures += 1
                         if (consecutiveRefreshFailures >= 2) {
-                            playerStatusView.text = "● OFFLINE · ĐANG PHÁT BẢN ĐÃ LƯU"
+                            playerStatusView.text = if (activeRelease != null) {
+                                "● OFFLINE · ĐANG PHÁT BẢN ĐÃ LƯU"
+                            } else {
+                                "● OFFLINE · CHƯA NHẬN BẢN PHÁT HÀNH"
+                            }
                         }
                     }
                 }
@@ -517,6 +504,8 @@ class MainActivity : Activity() {
         if (waitMs > 0L) {
             playerStatusView.text = if (pendingReleaseReady) {
                 "● MEDIA ĐÃ SẴN SÀNG · CHỜ GIỜ PHÁT"
+            } else if (activeRelease == null) {
+                "● ĐANG TẢI MEDIA · CHỜ BẢN PHÁT HÀNH"
             } else {
                 "● ĐANG TẢI MEDIA · VẪN PHÁT BẢN HIỆN TẠI"
             }
@@ -562,8 +551,11 @@ class MainActivity : Activity() {
                     }
                     activatePendingReleaseIfDue()
                 } else {
-                    playerStatusView.text =
+                    playerStatusView.text = if (activeRelease == null) {
+                        "● CHƯA ĐỦ MEDIA BẮT BUỘC · CHỜ BẢN HỢP LỆ"
+                    } else {
                         "● CHƯA ĐỦ MEDIA BẮT BUỘC · GIỮ BẢN HIỆN TẠI"
+                    }
                 }
             }
         }
@@ -578,12 +570,16 @@ class MainActivity : Activity() {
         } else if (pendingReleaseReady) {
             activateRelease(release)
         } else {
-            playerStatusView.text = "● ĐANG CHỜ MEDIA · GIỮ BẢN HIỆN TẠI"
+            playerStatusView.text = if (activeRelease == null) {
+                "● ĐANG CHỜ MEDIA · CHƯA CÓ BẢN ĐỂ PHÁT"
+            } else {
+                "● ĐANG CHỜ MEDIA · GIỮ BẢN HIỆN TẠI"
+            }
             prefetchPendingRelease(release)
         }
     }
 
-    private fun activateRelease(release: ReleaseManifest, persist: Boolean = true) {
+    private fun activateRelease(release: ReleaseManifest) {
         if (!release.isPlayable()) return
         if (pendingRelease?.sameIdentity(release) == true) {
             pendingRelease = null
@@ -593,17 +589,48 @@ class MainActivity : Activity() {
         }
         activeRelease = release
         activeIndex = 0
-        if (persist) releaseCache.saveCurrent(release)
-        cacheState = if (persist) "release-${release.version}-active" else "mock-fallback"
+        releaseCache.saveCurrent(release)
+        cacheState = "release-${release.version}-active"
         branchAddressView.text = release.branchAddress
         updateOnlineStatus()
         playCurrentItem()
     }
 
     private fun updateOnlineStatus() {
-        val release = activeRelease ?: return
         val transport = if (realtimeConnected) "REALTIME" else "POLLING"
+        val release = activeRelease
+        if (release == null) {
+            playerStatusView.text = "● ONLINE · $transport · CHỜ BẢN PHÁT HÀNH"
+            return
+        }
         playerStatusView.text = "● ONLINE · $transport · ${release.version}"
+    }
+
+    private fun showReleaseWaitingState(config: DeviceConfig) {
+        mainHandler.removeCallbacks(advanceRunnable)
+        releaseMediaPlayer()
+        activeRelease = null
+        activeItem = null
+        activeIndex = 0
+        playbackState = "waiting-for-release"
+        cacheState = "no-release"
+        branchAddressView.text = config.branchAddress.ifBlank { "TV đã ghép nối với Admin" }
+        hideContentViews()
+        slideBackgroundView.animate().cancel()
+        slideBackgroundView.setImageDrawable(null)
+        slideBackgroundView.tag = null
+        slideBackgroundView.alpha = 0f
+        slideBackgroundView.visibility = View.GONE
+        slideLogoView.animate().cancel()
+        slideLogoView.setImageDrawable(null)
+        slideLogoView.tag = null
+        slideLogoView.alpha = 0f
+        slideLogoView.visibility = View.GONE
+        announcementView.visibility = View.VISIBLE
+        announcementTitleView.text = "ĐANG CHỜ BẢN PHÁT HÀNH"
+        announcementBodyView.text =
+            "TV đã ghép nối thành công và đang chờ nội dung thật từ Admin."
+        playerStatusView.text = "● ĐANG KẾT NỐI · CHƯA NHẬN BẢN PHÁT HÀNH"
     }
 
     private fun ReleaseManifest.sameIdentity(other: ReleaseManifest): Boolean =

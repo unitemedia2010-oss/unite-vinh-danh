@@ -16,6 +16,8 @@ export interface Branch {
 
 export interface Honoree {
   rank: number
+  /** Stable MNV from the accounting Sheet for QLCN/Leader photo matching. */
+  entityCode?: string
   name: string
   shortName: string
   role: string
@@ -70,7 +72,7 @@ export interface PlaylistItem {
 export interface PlaylistDraftItem extends PlaylistItem {
   /**
    * Immutable recognition data decoded from a published release manifest.
-   * Local Admin drafts leave this undefined and continue using the demo board.
+   * The TV player rejects recognition slides when this dataset is absent.
    */
   recognitionBoard?: Board
   headline: string

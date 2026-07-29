@@ -20,18 +20,20 @@ npm run dev
 Mở:
 
 - Admin: `http://localhost:5173/#/admin/dashboard`
-- TV thử nghiệm: `http://localhost:5173/#/screen?branch=br-01&preview=1`
+- TV trực tuyến từ bản phát hành thật: `http://localhost:5173/#/tv`
+- TV ghép nối theo chi nhánh: `http://localhost:5173/#/screen?branch=br-01`
 
 Hoặc chạy `Start-Unite-VinhDanh.ps1` từ thư mục gốc.
 
 ## Luồng dữ liệu
 
-1. Admin bấm đồng bộ để Edge Function đọc snapshot mới nhất từ Google Sheet.
-2. Supabase lưu lô import, cảnh báo và kết quả theo từng bảng đấu.
-3. Admin kiểm tra, duyệt lô và tạo bản phát hành có phiên bản.
-4. Sau khi Admin bấm phát hành, Web/Android TV nhận manifest mới qua Supabase.
+1. Apps Script kiểm tra thay đổi của Google Sheet theo lịch tự động.
+2. Edge Function kiểm tra cấu trúc, lưu lô import và xếp đúng theo cột **Bảng Đấu**.
+3. Khi dữ liệu ổn định, Supabase tự tạo bản phát hành mới có phiên bản.
+4. Web/Android TV lấy manifest mới; link `/tv` kiểm tra cập nhật mỗi 60 giây.
 
-Sheet không được đẩy thẳng lên TV ngay sau mỗi lần sửa. Bước duyệt và phát hành được giữ lại để tránh dữ liệu đang nhập dở xuất hiện trên 9 màn hình.
+Sheet là nguồn quyết định tên, khu vực/team, bảng đấu và doanh số. Nếu một dòng
+thiếu hoặc lỗi, dòng đó bị loại khỏi bảng thay vì được thay bằng dữ liệu giả.
 
 ## Kiểm tra trước khi phát hành
 

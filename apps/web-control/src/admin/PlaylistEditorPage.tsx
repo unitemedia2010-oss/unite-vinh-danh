@@ -26,7 +26,7 @@ import {
 } from 'lucide-react'
 import { Brand } from '../components/Brand'
 import { StatusPill } from '../components/Status'
-import { boards, branches, demoMeta } from '../data/mock'
+import { boards, branches } from '../data/mock'
 import { getRecognitionVisualPreset } from '../data/recognitionPresets'
 import {
   createPlaylistItem,
@@ -272,7 +272,7 @@ export function PlaylistEditorPage({ notify }: { notify: (message: string) => vo
       const oldId = selected.mediaAssetId
       updateSelected({ mediaAssetId: asset.id, mediaAssetName: asset.name })
       deleteLocalAssetIfUnshared(oldId, 'mediaAssetId')
-      notify('Video đã được lưu cho bản demo trên thiết bị này.')
+      notify('Video đã được lưu trong bản nháp trên thiết bị này.')
     } catch (error) {
       notify(error instanceof Error ? error.message : 'Không thể lưu video.')
     } finally {
@@ -330,14 +330,14 @@ export function PlaylistEditorPage({ notify }: { notify: (message: string) => vo
   const openPreview = () => {
     if (!selected) return
     const base = window.location.href.split('#')[0]
-    window.open(`${base}#/screen?item=${encodeURIComponent(selected.id)}&branch=br-01&preview=1`, '_blank', 'noopener,noreferrer')
+    window.open(`${base}#/tv?item=${encodeURIComponent(selected.id)}`, '_blank', 'noopener,noreferrer')
   }
 
   const reset = () => {
-    if (!window.confirm('Đặt lại toàn bộ playlist, lịch, logo và ảnh nền về bản demo ban đầu?')) return
+    if (!window.confirm('Đặt lại toàn bộ playlist, lịch, logo và ảnh nền về cấu hình mặc định?')) return
     resetConfig()
     setSelectedId('pl-01')
-    notify('Đã đặt lại trình thiết lập về bản demo tháng 08.')
+    notify('Đã đặt lại trình thiết lập về cấu hình mặc định.')
   }
 
   const saveDraft = async () => {
@@ -402,7 +402,7 @@ export function PlaylistEditorPage({ notify }: { notify: (message: string) => vo
         </div>
         <div className="playlist-summary__actions">
           <button className="button button--secondary" onClick={reset}><RotateCcw size={16} /> Đặt lại</button>
-          <button className="button button--secondary" onClick={openPreview}><MonitorPlay size={16} /> Xem thử TV (DEMO)</button>
+          <button className="button button--secondary" onClick={openPreview}><MonitorPlay size={16} /> Xem bản TV đã phát hành</button>
           <button className="button button--secondary" onClick={() => void loadDraft()} disabled={Boolean(cloudBusy)}>
             <CloudDownload size={16} /> {cloudBusy === 'load' ? 'Đang tải…' : 'Tải từ Cloud'}
           </button>
@@ -516,7 +516,7 @@ export function PlaylistEditorPage({ notify }: { notify: (message: string) => vo
                   </div>
                   <div className="slide-mini-preview__time">{selected.duration} GIÂY</div>
                 </div>
-                <button className="button button--wide button--secondary" onClick={openPreview}><MonitorPlay size={16} /> Xem thử toàn màn hình (DEMO)</button>
+                <button className="button button--wide button--secondary" onClick={openPreview}><MonitorPlay size={16} /> Mở bản TV đã phát hành</button>
               </section>
 
               <section className="panel inspector-card">
@@ -667,7 +667,7 @@ export function PlaylistEditorPage({ notify }: { notify: (message: string) => vo
       <section className="panel global-schedule-editor">
         <div className="global-schedule-editor__head">
           <div><span>LỊCH PHÁT TOÀN PLAYLIST</span><h3>Khung thời gian áp dụng mặc định</h3><p>Trang có lịch riêng sẽ dùng lịch riêng; các trang còn lại theo lịch này.</p></div>
-          <label className="schedule-master-switch"><input type="checkbox" checked={config.schedule.enabled} onChange={(event) => updateConfig((current) => ({ ...current, schedule: { ...current.schedule, enabled: event.target.checked } }))} /><i /><span>{config.schedule.enabled ? 'Đang áp dụng lịch' : 'Demo luôn phát'}</span></label>
+          <label className="schedule-master-switch"><input type="checkbox" checked={config.schedule.enabled} onChange={(event) => updateConfig((current) => ({ ...current, schedule: { ...current.schedule, enabled: event.target.checked } }))} /><i /><span>{config.schedule.enabled ? 'Đang áp dụng lịch' : 'Phát liên tục'}</span></label>
         </div>
         <div className="global-schedule-editor__body">
           <Field label="Từ ngày"><input type="date" value={config.schedule.startDate} onChange={(event) => updateConfig((current) => ({ ...current, schedule: { ...current.schedule, startDate: event.target.value } }))} /></Field>

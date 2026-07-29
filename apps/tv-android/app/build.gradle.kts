@@ -42,16 +42,6 @@ android {
             "SUPABASE_ANON_KEY",
             quotedBuildConfig(configValue("VINHDANH_SUPABASE_ANON_KEY"))
         )
-        buildConfigField(
-            "String",
-            "DEMO_VIDEO_URL",
-            quotedBuildConfig(
-                configValue(
-                    "VINHDANH_DEMO_VIDEO_URL",
-                    "https://media.w3.org/2010/05/video/movie_300.mp4"
-                )
-            )
-        )
     }
 
     buildFeatures {

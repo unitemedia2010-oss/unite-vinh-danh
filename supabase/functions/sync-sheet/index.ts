@@ -27,6 +27,12 @@ import {
   normalizeSheetTrigger,
   resolveImportStatus,
 } from "../_shared/sync-policy.ts";
+import {
+  employeePhotoHashSnapshot,
+  indexEmployeePhotoRows,
+  normalizeEmployeeCode,
+  type EmployeePhotoRow,
+} from "../_shared/employee-photo.ts";
 
 type SyncRequest = {
   sourceId?: string;
@@ -112,6 +118,29 @@ async function autoPublishValidatedBatch(
     broadcastAccepted,
     broadcastError,
   };
+}
+
+async function loadEmployeePhotoPaths(
+  supabase: SupabaseClient,
+  employeeCodes: string[],
+): Promise<Map<string, string | null>> {
+  const queryCodes = [...new Set(employeeCodes.flatMap((value) => {
+    const original = value.trim();
+    const normalized = normalizeEmployeeCode(value);
+    return [original, normalized].filter(Boolean);
+  }))];
+  if (!queryCodes.length) return new Map();
+
+  const rows: EmployeePhotoRow[] = [];
+  for (let offset = 0; offset < queryCodes.length; offset += 200) {
+    const { data, error } = await supabase
+      .from("employees")
+      .select("employee_code,photo_path")
+      .in("employee_code", queryCodes.slice(offset, offset + 200));
+    if (error) throw error;
+    rows.push(...((data ?? []) as EmployeePhotoRow[]));
+  }
+  return indexEmployeePhotoRows(rows);
 }
 
 Deno.serve(async (request) => {
@@ -266,8 +295,21 @@ Deno.serve(async (request) => {
     }
     const periodId = periodResolution.periodId;
 
+    const photoCandidateCodes = allRows
+      .filter(({ mapping }) => mapping.code === "DS_KV" || mapping.code === "DS_TEAM")
+      .flatMap(({ normalized }) => normalized.rows.map((row) => row.entityCode ?? ""))
+      .filter(Boolean);
+    const employeePhotoPaths = await loadEmployeePhotoPaths(
+      supabase,
+      photoCandidateCodes,
+    );
+
     const sourceHash = await sha256(JSON.stringify({
       snapshots,
+      employeePhotos: employeePhotoHashSnapshot(
+        photoCandidateCodes,
+        employeePhotoPaths,
+      ),
       derivationVersions: {
         bestTeam: BEST_TEAM_CONTRIBUTION_VERSION,
         qlcn: QLCN_DERIVATION_VERSION,
@@ -501,6 +543,9 @@ Deno.serve(async (request) => {
         role_label: award.roleCode,
         revenue_vnd: award.revenueVnd,
         display_revenue: award.displayRevenue,
+        photo_path: employeePhotoPaths.get(
+          normalizeEmployeeCode(award.entityCode),
+        ) ?? null,
         needs_review: award.needsReview,
         metadata: {
           calculation:
@@ -572,6 +617,9 @@ Deno.serve(async (request) => {
         role_label: award.roleCode,
         revenue_vnd: award.revenueVnd,
         display_revenue: award.displayRevenue,
+        photo_path: employeePhotoPaths.get(
+          normalizeEmployeeCode(award.employeeCode),
+        ) ?? null,
         needs_review: award.needsReview,
         metadata: {
           calculation:

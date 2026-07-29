@@ -62,33 +62,16 @@
             android:textColor="@color/green_400"
             android:textSize="14sp" />
 
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+        <Button
+            android:id="@+id/pair_now_button"
+            android:layout_width="220dp"
+            android:layout_height="50dp"
             android:layout_marginTop="14dp"
-            android:orientation="horizontal">
-
-            <Button
-                android:id="@+id/pair_now_button"
-                android:layout_width="190dp"
-                android:layout_height="50dp"
-                android:background="@drawable/bg_button"
-                android:text="@string/pair_now"
-                android:textColor="@color/white"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-
-            <Button
-                android:id="@+id/demo_button"
-                android:layout_width="190dp"
-                android:layout_height="50dp"
-                android:layout_marginStart="14dp"
-                android:background="@drawable/bg_button"
-                android:text="@string/pair_demo"
-                android:textColor="@color/white"
-                android:textSize="14sp"
-                android:textStyle="bold" />
-        </LinearLayout>
+            android:background="@drawable/bg_button"
+            android:text="@string/pair_now"
+            android:textColor="@color/white"
+            android:textSize="14sp"
+            android:textStyle="bold" />
     </LinearLayout>
 
     <LinearLayout

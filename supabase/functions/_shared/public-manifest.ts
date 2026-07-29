@@ -7,6 +7,15 @@ const blockedExactKeys = new Set([
   "managersourcerowkeys",
   "teamsourcerowkeys",
   "validationmessages",
+  "employeeid",
+  "employeecode",
+  "entitycode",
+  "apikey",
+  "authorization",
+  "credential",
+  "credentials",
+  "password",
+  "session",
 ]);
 
 function normalizedKey(key: string): string {
@@ -56,15 +65,11 @@ export function publicManifestMatchesRelease(
   return true;
 }
 
-export function publicManifestEtag(
-  releaseId: string,
-  updatedAt: string,
-): string {
-  const safeId = releaseId.replace(/[^A-Za-z0-9-]/g, "");
-  const timestamp = Number.isFinite(Date.parse(updatedAt))
-    ? Date.parse(updatedAt)
-    : 0;
-  return `"public-manifest-${safeId}-${timestamp}"`;
+/** Public manifests contain fresh signed Storage URLs and are enriched from
+ * the mutable employee photo directory. They must never be conditionally
+ * cached by release id alone. */
+export function publicManifestResponseHeaders(): Record<string, string> {
+  return { "Cache-Control": "no-store" };
 }
 
 export type RateWindow = { startedAt: number; count: number };

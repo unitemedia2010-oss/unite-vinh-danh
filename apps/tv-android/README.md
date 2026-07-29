@@ -10,8 +10,8 @@ the legacy web and backend code.
 - Server-issued six-digit pairing code. The TV registers itself, encrypts the temporary device
   token with Android Keystore, polls approval every five seconds, then stores its approved screen
   and branch configuration.
-- Pilot demo/default address: `125 Trần Bình Trọng`. `683 Âu Cơ Tân Phú` remains the known CN09
-  address; a paired TV always uses the branch address returned by `screen-api` status.
+- A paired TV always uses the branch address returned by `screen-api` status. No branch,
+  device token, playlist, or recognition data is fabricated locally.
 - Release/playlist models and atomic last-known-release JSON cache.
 - Recognition screen with Top 1–3 podium and ranks 4–10. `avatarUrl`/`avatar_url` is rendered as
   the real employee photo with bounded memory and disk caches; initials remain visible when an
@@ -22,15 +22,16 @@ the legacy web and backend code.
   SHA-256 is checked when supplied, and the last-known release keeps playing while a future release
   is downloaded or when the network is offline.
 - Per-slide backgrounds and custom logos are rendered from the offline cache with a short fade-in;
-  the three paired recognition backgrounds and six rank badges are bundled for offline demo use,
-  while slides without a rank/custom logo keep the Unite Group wordmark visible.
+  bundled recognition backgrounds and rank badges remain available as visual assets, while slides
+  without a rank/custom logo keep the Unite Group wordmark visible.
 - One Supabase Edge Function client: `screen-api` actions `register`, `status`, `manifest`, and
   `heartbeat`.
 - Heartbeat every 30 seconds; manifest polling every 60 seconds.
 - Supabase Realtime Broadcast websocket on `screen-updates`, with Phoenix heartbeat and bounded
   reconnect backoff. A broadcast triggers an immediate scoped manifest fetch; REST polling remains
   the authoritative fallback.
-- Demo playlist cycling recognition, an audio-enabled video, and an internal announcement.
+- Fail-closed startup: an unpaired TV stays on the pairing screen; a paired TV without a cached
+  or published release stays on an explicit waiting screen and never invents recognition data.
 
 ## Local configuration
 
@@ -40,7 +41,6 @@ Copy `local.properties.example` to the untracked `local.properties` file:
 sdk.dir=C\:\\Users\\YOUR_USER\\AppData\\Local\\Android\\Sdk
 VINHDANH_SUPABASE_URL=https://YOUR_PROJECT.supabase.co
 VINHDANH_SUPABASE_ANON_KEY=YOUR_PUBLIC_ANON_KEY
-VINHDANH_DEMO_VIDEO_URL=https://your-cdn.example/video.mp4
 ```
 
 The same names may be Gradle properties or environment variables. Never place a Supabase
@@ -193,7 +193,8 @@ Sent every 30 seconds with the device token:
 
 - On startup, the app immediately opens the atomic last-known active manifest. A future release is
   kept separately as `ready_release.json`, so restarting before `activate_at` never leaves the TV
-  blank or activates content early. If no active release exists, the pilot demo remains available.
+  blank or activates content early. If no active release exists, the TV waits for a valid release
+  from Admin and does not display locally generated demo data.
 - Future release media is downloaded before `activate_at`; required media must be ready before the
   TV reports `readyReleaseId` or activates the release. Videos are then played from local files.
   The general media cache is bounded to 500 MB per file and 1 GB total. Avatar cache is 8 MB per

@@ -4,7 +4,6 @@
     <string name="pair_title">KẾT NỐI MÀN HÌNH</string>
     <string name="pair_instruction">Mở Admin → Thiết bị TV → Nhập mã ghép nối</string>
     <string name="pair_now">THỬ KẾT NỐI</string>
-    <string name="pair_demo">CHẠY BẢN DEMO</string>
     <string name="pair_waiting">Đang chờ Admin xác nhận…</string>
     <string name="recognition_title">VINH DANH THÀNH TÍCH XUẤT SẮC</string>
     <string name="slide_logo_description">Logo bảng vinh danh</string>

@@ -115,7 +115,7 @@ object ManifestJsonCodec {
             version = root.firstString("version", "releaseVersion").ifBlank { "1" },
             branchId = root.firstString("branch_id", "branchId"),
             branchAddress = root.firstString("branch_address", "branchAddress")
-                .ifBlank { MockReleaseFactory.BRANCH_ADDRESS },
+                .ifBlank { "Chưa cập nhật địa chỉ chi nhánh" },
             effectiveAtEpochMs = root.firstLong(
                 0L,
                 "effective_at_epoch_ms",

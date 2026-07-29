@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   AlertTriangle,
   Check,
   ChevronLeft,
   ChevronRight,
   Copy,
+  Crown,
   Medal,
   RefreshCw,
   Share2,
@@ -17,6 +18,7 @@ import { Avatar } from '../components/Avatar'
 import { Brand } from '../components/Brand'
 import { getRecognitionVisualPreset } from '../data/recognitionPresets'
 import { formatVnd } from '../lib/format'
+import { honoreeContextLabel } from '../lib/honoreeDisplay'
 import { playlistConfigFromReleaseManifest } from '../lib/releaseManifest'
 import {
   getPublicShareManifest,
@@ -97,6 +99,7 @@ export function PublicSharePage() {
   const [copied, setCopied] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null)
+  const datasetRef = useRef<ShareDataset | null>(null)
 
   const refresh = useCallback(async (silent = false, signal?: AbortSignal) => {
     if (!silent) setRefreshing(true)
@@ -104,6 +107,8 @@ export function PublicSharePage() {
       const result = await getPublicShareManifest(signal)
       setLastCheckedAt(new Date(result.serverTime))
       if (!result.release) {
+        if (silent && datasetRef.current) return
+        datasetRef.current = null
         setDataset(null)
         setStatus('empty')
         setMessage('Chưa có bản vinh danh thật nào được phát hành để chia sẻ.')
@@ -111,22 +116,29 @@ export function PublicSharePage() {
       }
       const parsed = parseShareDataset(result.release)
       if (parsed === 'demo') {
+        if (silent && datasetRef.current) return
+        datasetRef.current = null
         setDataset(null)
         setStatus('demo-blocked')
         setMessage('Bản đang có là dữ liệu demo nên không được hiển thị trên link chia sẻ.')
         return
       }
       if (!parsed) {
+        if (silent && datasetRef.current) return
+        datasetRef.current = null
         setDataset(null)
         setStatus('empty')
         setMessage('Bản phát hành hiện chưa có bảng vinh danh hợp lệ để chia sẻ.')
         return
       }
+      datasetRef.current = parsed
       setDataset(parsed)
       setStatus('ready')
       setMessage('')
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return
+      if (silent && datasetRef.current) return
+      datasetRef.current = null
       setDataset(null)
       setStatus('error')
       setMessage(error instanceof PublicShareClientError
@@ -245,6 +257,7 @@ export function PublicSharePage() {
   }
 
   const board = selectedSlide.recognitionBoard
+  const hasRanking = board.honorees.length > 3
   const preset = getRecognitionVisualPreset(board.id)
   const backgroundUrl = selectedSlide.backgroundUrl || preset?.backgroundUrl
   const boardStyle = backgroundUrl
@@ -269,7 +282,7 @@ export function PublicSharePage() {
       </header>
 
       <main className="public-share__main">
-        <section className="share-board" style={boardStyle}>
+        <section className={`share-board ${hasRanking ? 'share-board--with-ranking' : 'share-board--top-only'}`} style={boardStyle}>
           <div className="share-board__backdrop" />
           <div className="share-board__heading">
             {preset?.badgeUrl
@@ -282,31 +295,38 @@ export function PublicSharePage() {
             </div>
           </div>
 
-          <div className="share-podium">
-            {board.honorees.slice(0, 3).map((person) => (
-              <article className={`share-winner share-winner--${person.rank}`} key={`${person.rank}-${person.name}`}>
-                <span className="share-winner__rank">{person.rank === 1 ? <Trophy /> : <Medal />} HẠNG {person.rank}</span>
-                <Avatar person={person} size="xl" glow={person.rank === 1} />
-                <h2>{person.name}</h2>
-                <p>{person.team || person.branch}</p>
-                <strong>{formatVnd(person.revenue)}</strong>
-              </article>
-            ))}
-          </div>
-
-          {board.honorees.length > 3 && (
-            <div className="share-ranking">
-              <div className="share-ranking__head"><span>TOP VINH DANH</span><span>DOANH SỐ</span></div>
-              {board.honorees.slice(3, 10).map((person) => (
-                <article key={`${person.rank}-${person.name}`}>
-                  <span>{String(person.rank).padStart(2, '0')}</span>
-                  <Avatar person={person} size="sm" />
-                  <div><strong>{person.name}</strong><small>{person.team || person.branch}</small></div>
-                  <b>{formatVnd(person.revenue)}</b>
+          <div className="share-board__stage">
+            <div className="share-podium">
+              {board.honorees.slice(0, 3).map((person) => (
+                <article className={`share-winner share-winner--${person.rank}`} key={`${person.rank}-${person.name}`}>
+                  <div className="share-winner__halo" />
+                  <span className="share-winner__medal">
+                    {person.rank === 1 ? <Crown /> : <Medal />}<b>{person.rank}</b>
+                  </span>
+                  <Avatar person={person} size="xl" glow={person.rank === 1} />
+                  <i>HẠNG {person.rank}</i>
+                  <h2>{person.name}</h2>
+                  <p>{honoreeContextLabel(board.group, person)}</p>
+                  <strong>{formatVnd(person.revenue)}</strong>
+                  <div className="share-winner__base"><span>{person.rank}</span></div>
                 </article>
               ))}
             </div>
-          )}
+
+            {hasRanking && (
+              <div className="share-ranking">
+                <div className="share-ranking__head"><span>TOP 10 XUẤT SẮC</span><span>DOANH SỐ</span></div>
+                {board.honorees.slice(3, 10).map((person) => (
+                  <article key={`${person.rank}-${person.name}`}>
+                    <span>{String(person.rank).padStart(2, '0')}</span>
+                    <Avatar person={person} size="sm" />
+                    <div><strong>{person.name}</strong><small>{honoreeContextLabel(board.group, person)}</small></div>
+                    <b>{formatVnd(person.revenue)}</b>
+                  </article>
+                ))}
+              </div>
+            )}
+          </div>
 
           <p className="share-board__caption"><Sparkles /> Thành tích hôm nay là cảm hứng cho hành trình ngày mai</p>
         </section>

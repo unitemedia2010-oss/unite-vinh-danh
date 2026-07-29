@@ -53,11 +53,21 @@ class ManifestJsonCodecTest {
 
     @Test
     fun roundTripsReadyReleaseWithoutLosingIdentity() {
-        val original = MockReleaseFactory.create().copy(
+        val original = ReleaseManifest(
             id = "release-ready",
             version = "2026.08.2",
             branchId = "branch-01",
-            effectiveAtEpochMs = 1_800_000_000_000L
+            branchAddress = "125 Tran Binh Trong",
+            effectiveAtEpochMs = 1_800_000_000_000L,
+            playlist = listOf(
+                PlaylistItem(
+                    id = "announcement-01",
+                    type = PlaylistItemType.ANNOUNCEMENT,
+                    title = "THONG BAO NOI BO",
+                    durationSeconds = 12,
+                    announcementBody = "Noi dung phat hanh that"
+                )
+            )
         )
 
         val decoded = ManifestJsonCodec.decode(ManifestJsonCodec.encode(original))
@@ -78,7 +88,7 @@ class ManifestJsonCodecTest {
         val release = ManifestJsonCodec.decode(
             """
             {
-              "version": "DEMO-08-2026-R1",
+              "version": "LIVE-08-2026-R1",
               "playlist": [
                 {
                   "id": "pl-10",

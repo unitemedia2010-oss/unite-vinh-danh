@@ -10,10 +10,9 @@ import type {
 
 const STORAGE_KEY = 'unite-recognition-playlist-v1'
 const CHANNEL_NAME = 'unite-recognition-playlist'
+const LEGACY_SAMPLE_VIDEO_URL = 'https://media.w3.org/2010/05/video/movie_300.mp4'
 
 const allWeekdays = [1, 2, 3, 4, 5, 6, 0]
-
-export const DEFAULT_DEMO_VIDEO_URL = 'https://media.w3.org/2010/05/video/movie_300.mp4'
 
 export const defaultSchedule = (): ScheduleWindow => ({
   enabled: false,
@@ -29,7 +28,7 @@ const contentDefaults: Record<string, Partial<PlaylistDraftItem>> = {
     headline: 'UNITE WEEKLY',
     subtitle: 'Bản tin nội bộ · Số 32',
     body: 'Thông tin nổi bật trong tuần',
-    mediaUrl: DEFAULT_DEMO_VIDEO_URL,
+    mediaUrl: '',
     audioEnabled: true,
   },
   'pl-11': {
@@ -99,6 +98,7 @@ const hydrateItem = (item: PlaylistDraftItem): PlaylistDraftItem => {
   return {
     ...base,
     ...item,
+    mediaUrl: item.mediaUrl === LEGACY_SAMPLE_VIDEO_URL ? '' : item.mediaUrl ?? base.mediaUrl,
     overlayOpacity: isLegacyRecognition && !item.backgroundAssetId ? 24 : item.overlayOpacity ?? base.overlayOpacity,
     logoPosition: isLegacyRecognition ? 'top-left' : item.logoPosition ?? base.logoPosition,
     logoEffect: item.logoEffect ?? base.logoEffect,

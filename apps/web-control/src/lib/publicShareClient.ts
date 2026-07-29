@@ -111,6 +111,10 @@ export const getPublicShareManifest = async (
     return { ...cachedResult, fromCache: true }
   }
 
+  if (response.status >= 500 && cachedResult) {
+    return { ...cachedResult, fromCache: true }
+  }
+
   const payload = await responsePayload(response)
   if (!response.ok || stringValue(payload.error)) {
     const code = stringValue(payload.error) || `HTTP_${response.status}`

@@ -1,8 +1,8 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   consumeRateLimit,
-  publicManifestEtag,
   publicManifestMatchesRelease,
+  publicManifestResponseHeaders,
   type RateWindow,
   sanitizePublicManifest,
 } from "./public-manifest.ts";
@@ -57,6 +57,8 @@ Deno.test("public manifest keeps approved display fields and removes internals",
   assertEquals(
     sanitizePublicManifest({
       schema: "unite-vinhdanh-release",
+      apiKey: "must-not-leak",
+      authorization: "Bearer must-not-leak",
       playlist: [{
         title: "Thống Soái",
         mediaPath: "internal/video.mp4",
@@ -65,11 +67,15 @@ Deno.test("public manifest keeps approved display fields and removes internals",
         recognition_board: {
           entries: [{
             rank: 1,
+            employee_id: "U261:DOC1",
+            employee_code: "U261",
+            entity_code: "U261",
             name: "Trần Thị Huế",
             revenue: 960000,
             photo_path: "u261/photo.jpg",
             avatar_url: "https://signed.example/photo.jpg",
             sourceRowKeys: ["DS_KV:3:U261"],
+            credentials: { token: "must-not-leak" },
           }],
         },
       }],
@@ -92,10 +98,10 @@ Deno.test("public manifest keeps approved display fields and removes internals",
   );
 });
 
-Deno.test("public manifest ETag is stable", () => {
+Deno.test("public manifest never reuses dynamic signed URLs from cache", () => {
   assertEquals(
-    publicManifestEtag("release-1", "2026-07-28T00:00:00.000Z"),
-    '"public-manifest-release-1-1785196800000"',
+    publicManifestResponseHeaders(),
+    { "Cache-Control": "no-store" },
   );
 });
 
