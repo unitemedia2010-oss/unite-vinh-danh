@@ -1,4 +1,4 @@
-# Vinh Danh TV — Android TV MVP
+# Vinh Danh TV — Android TV và máy tính bảng Android
 
 Native Kotlin player for the nine-branch recognition network. This directory is isolated from
 the legacy web and backend code.
@@ -6,7 +6,7 @@ the legacy web and backend code.
 ## Implemented
 
 - Landscape immersive 16:9 UI, DPAD focus, `LEANBACK_LAUNCHER` for Google TV and regular
-  `LAUNCHER` for Android boxes that do not declare Leanback.
+  `LAUNCHER` for Android boxes, Android phones, and Android tablets.
 - Server-issued six-digit pairing code. The TV registers itself, encrypts the temporary device
   token with Android Keystore, polls approval every five seconds, then stores its approved screen
   and branch configuration.
@@ -213,18 +213,19 @@ Sent every 30 seconds with the device token:
 ## Build and install
 
 ```powershell
-$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
-$env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"
-.\gradlew.bat :app:testDebugUnitTest :app:lintDebug :app:assembleDebug
-& "$env:ANDROID_HOME\platform-tools\adb.exe" install -r app\build\outputs\apk\debug\app-debug.apk
+.\build-internal-apk.ps1
 ```
 
-APK output: `app/build/outputs/apk/debug/app-debug.apk`.
+Script sẽ đọc đúng cấu hình public của OneDrop từ `../web-control/.env.local`, chạy unit test,
+lint, build và chặn phát hành nếu APK bị thiếu URL/key kết nối. File dùng chung cho Android TV và
+máy tính bảng Android được xuất tại:
 
-Bản pilot đã đóng gói với URL + publishable key của OneDrop (không chứa
-service-role key) nằm tại:
+`../../releases/Unite-VinhDanh-Android-TV-Tablet-v0.2.1.apk`
 
-`releases/Unite-VinhDanh-TV-pilot-v0.2.0.apk`
+APK yêu cầu Android 6.0 trở lên. Trên thiết bị, cho phép trình duyệt hoặc ứng dụng Quản lý tệp
+“Cài ứng dụng không xác định”, sau đó mở file APK và chọn **Cài đặt**. iPad/iPhone không chạy APK;
+trên các thiết bị đó hãy dùng Web TV tại
+`https://unitemedia2010-oss.github.io/unite-vinh-danh/#/tv`.
 
-Đây là debug APK cho pilot nội bộ. Trước khi phát hành rộng, tạo release APK/AAB
-được ký bằng keystore production riêng và lưu keystore ngoài repository.
+Đây là debug APK đã ký cho pilot nội bộ. Trước khi phát hành rộng qua Google Play, tạo release
+APK/AAB được ký bằng keystore production riêng và lưu keystore ngoài repository.

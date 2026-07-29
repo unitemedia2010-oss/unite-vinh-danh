@@ -12,10 +12,30 @@ val localProperties = Properties().apply {
     }
 }
 
+val webEnvironment = mutableMapOf<String, String>().apply {
+    val file = rootProject.file("../web-control/.env.local")
+    if (file.isFile) {
+        file.forEachLine(Charsets.UTF_8) { rawLine ->
+            val line = rawLine.trim()
+            if (line.isEmpty() || line.startsWith("#")) return@forEachLine
+            val separator = line.indexOf('=')
+            if (separator <= 0) return@forEachLine
+            val key = line.substring(0, separator).trim()
+            val value = line.substring(separator + 1).trim().removeSurrounding("\"").removeSurrounding("'")
+            put(key, value)
+        }
+    }
+}
+
 fun configValue(name: String, defaultValue: String = ""): String =
     providers.gradleProperty(name).orNull
         ?: localProperties.getProperty(name)
         ?: System.getenv(name)
+        ?: when (name) {
+            "VINHDANH_SUPABASE_URL" -> webEnvironment["VITE_SUPABASE_URL"]
+            "VINHDANH_SUPABASE_ANON_KEY" -> webEnvironment["VITE_SUPABASE_ANON_KEY"]
+            else -> null
+        }
         ?: defaultValue
 
 fun quotedBuildConfig(value: String): String =
@@ -29,8 +49,8 @@ android {
         applicationId = "vn.unite.vinhdanh.tv"
         minSdk = 23
         targetSdk = 36
-        versionCode = 2
-        versionName = "0.2.0-mvp"
+        versionCode = 3
+        versionName = "0.2.1-internal"
 
         buildConfigField(
             "String",
