@@ -1,11 +1,32 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import {
   consumeRateLimit,
+  omitHiddenRecognitionItems,
   publicManifestMatchesRelease,
   publicManifestResponseHeaders,
   type RateWindow,
   sanitizePublicManifest,
 } from "./public-manifest.ts";
+
+Deno.test("hidden recognition items stay internal and never reach TV/share", () => {
+  assertEquals(
+    omitHiddenRecognitionItems({
+      schema: "unite-vinhdanh-release",
+      playlist: [
+        { id: "visible", kind: "recognition" },
+        { id: "hidden", kind: "recognition", visibility_hidden: true },
+        { id: "video", kind: "video" },
+      ],
+    }),
+    {
+      schema: "unite-vinhdanh-release",
+      playlist: [
+        { id: "visible", kind: "recognition" },
+        { id: "video", kind: "video" },
+      ],
+    },
+  );
+});
 
 Deno.test("public manifest must match its validated release identity", () => {
   assertEquals(
@@ -57,6 +78,7 @@ Deno.test("public manifest keeps approved display fields and removes internals",
   assertEquals(
     sanitizePublicManifest({
       schema: "unite-vinhdanh-release",
+      visibility_revision: "internal-revision",
       apiKey: "must-not-leak",
       authorization: "Bearer must-not-leak",
       playlist: [{

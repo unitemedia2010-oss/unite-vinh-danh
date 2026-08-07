@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Activity,
+  AlertTriangle,
   ArrowRight,
   ArrowUpRight,
   Bell,
@@ -13,6 +14,7 @@ import {
   DatabaseZap,
   ExternalLink,
   Eye,
+  EyeOff,
   FileSpreadsheet,
   History,
   LayoutDashboard,
@@ -47,6 +49,7 @@ import { HealthIcon, ReleaseIcon, StatusPill } from '../components/Status'
 import { boards, sourceSheetUrl } from '../data/mock'
 import { saveCloudPlaylistDraft } from '../lib/cloudPlaylistSync'
 import { formatVnd } from '../lib/format'
+import { podiumHonorees, rankingListHonorees } from '../lib/honoreeDisplay'
 import { usePlaylistConfig } from '../lib/playlistConfig'
 import { getPublicShareManifest } from '../lib/publicShareClient'
 import { buildReleaseManifest, playlistConfigFromReleaseManifest } from '../lib/releaseManifest'
@@ -55,13 +58,20 @@ import {
   listRecognitionImportBatches,
   loadLatestRecognitionBatch,
   recognitionWarningText,
+  setRecognitionVisibilityRule,
   type RecognitionBatchSnapshot,
   type RecognitionImportBatch,
 } from '../lib/supabaseRecognitionRepository'
 import {
   createReadyPlaylistRelease,
   publishReleaseWithAdminSession,
+  SUPABASE_BOARD_CODE_BY_LOCAL_ID,
 } from '../lib/supabasePlaylistRepository'
+import {
+  isRecognitionBoardHidden,
+  isRecognitionPersonHidden,
+  normalizeVisibilityKey,
+} from '../lib/recognitionVisibility'
 import { EmployeePhotosPage } from './EmployeePhotosPage'
 import { PlaylistEditorPage } from './PlaylistEditorPage'
 import { SheetRankingColumnEditor } from './SheetRankingColumnEditor'
@@ -207,7 +217,7 @@ export function AdminApp() {
 
           {page === 'dashboard' && <DashboardPage navigate={navigate} />}
           {page === 'imports' && <ImportsPage notify={notify} />}
-          {page === 'boards' && <BoardsPage notify={notify} />}
+          {page === 'boards' && <BoardsPage navigate={navigate} notify={notify} />}
           {page === 'photos' && <EmployeePhotosPage notify={notify} />}
           {page === 'playlist' && <PlaylistPage notify={notify} />}
           {page === 'devices' && <DevicesPage openLiveTv={openLiveTv} notify={notify} />}
@@ -256,6 +266,8 @@ function DashboardPage({ navigate }: { navigate: (page: Page) => void }) {
   }, [])
 
   const liveBoard = live?.boards.find((board) => board.id === 'leader-ky-lan') ?? live?.boards[0]
+  const livePodium = liveBoard ? podiumHonorees(liveBoard.honorees) : []
+  const liveRanking = liveBoard ? rankingListHonorees(liveBoard.honorees) : []
   const rankingCount = live?.boards.reduce((total, board) => total + board.honorees.length, 0) ?? 0
   const livePeriod = live ? periodLabel(live.periodId) : 'Đang tải dữ liệu'
   const liveUrl = `${window.location.href.split('#')[0]}#/tv`
@@ -313,7 +325,7 @@ function DashboardPage({ navigate }: { navigate: (page: Page) => void }) {
         <PanelHeader eyebrow="XEM NHANH DỮ LIỆU THẬT" title={`${liveBoard.title} · ${liveBoard.threshold}`} action="Kiểm duyệt bảng" onAction={() => navigate('boards')} />
         <div className="snapshot-layout">
           <div className="snapshot-podium">
-            {[liveBoard.honorees[1], liveBoard.honorees[0], liveBoard.honorees[2]].filter(Boolean).map((person) => (
+            {livePodium.map((person) => (
               <div className={`snapshot-person rank-${person.rank}`} key={`${person.rank}-${person.name}-${person.branch}`}>
                 <span className="snapshot-rank">#{person.rank}</span><Avatar person={person} size="lg" glow={person.rank === 1} />
                 <strong>{person.shortName}</strong><small>{liveBoard.group === 'manager' ? person.branch : person.team}</small><b>{formatVnd(person.revenue)}</b>
@@ -321,7 +333,7 @@ function DashboardPage({ navigate }: { navigate: (page: Page) => void }) {
             ))}
           </div>
           <div className="snapshot-list">
-            {liveBoard.honorees.slice(3, 10).map((person) => (
+            {liveRanking.map((person) => (
               <div key={person.rank}><span>{String(person.rank).padStart(2, '0')}</span><Avatar person={person} size="sm" /><p><strong>{person.shortName}</strong><small>{person.team}</small></p><b>{formatVnd(person.revenue)}</b></div>
             ))}
           </div>
@@ -549,11 +561,27 @@ function ImportsPage({ notify }: { notify: (message: string) => void }) {
   )
 }
 
-function BoardsPage({ notify }: { notify: (message: string) => void }) {
+function BoardsPage({
+  navigate,
+  notify,
+}: {
+  navigate: (page: Page) => void
+  notify: (message: string) => void
+}) {
   const [group, setGroup] = useState<Board['group']>('leader')
   const [snapshot, setSnapshot] = useState<RecognitionBatchSnapshot | null>(null)
   const [loadError, setLoadError] = useState('')
   const [loading, setLoading] = useState(isSupabaseConfigured)
+  const [visibilityReason, setVisibilityReason] = useState('')
+  const [visibilityBusy, setVisibilityBusy] = useState('')
+
+  const refreshSnapshot = async () => {
+    const next = await loadLatestRecognitionBatch()
+    setSnapshot(next)
+    setLoadError('')
+    return next
+  }
+
   useEffect(() => {
     if (!isSupabaseConfigured) return
     let active = true
@@ -563,30 +591,88 @@ function BoardsPage({ notify }: { notify: (message: string) => void }) {
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [])
-  const usingLiveData = Boolean(snapshot?.boards.length)
+  const usingLiveData = Boolean(snapshot?.allBoards.length)
   const reviewBoards = useMemo(() => {
-    if (!snapshot?.boards.length) {
+    if (!snapshot?.allBoards.length) {
       return boards.map((board) => ({
         ...board,
         honorees: [],
         sourceRange: 'Chưa tải được dữ liệu thật từ Supabase',
       }))
     }
-    const liveById = new Map(snapshot.boards.map((board) => [board.id, board]))
+    const liveById = new Map(snapshot.allBoards.map((board) => [board.id, board]))
     const known = boards.map((board) => liveById.get(board.id) ?? {
       ...board,
       honorees: [],
       sourceRange: `Lô #${snapshot.batch.sequence} chưa có kết quả cho bảng này`,
     })
     const knownIds = new Set(known.map((board) => board.id))
-    return [...known, ...snapshot.boards.filter((board) => !knownIds.has(board.id))]
+    return [...known, ...snapshot.allBoards.filter((board) => !knownIds.has(board.id))]
   }, [snapshot])
   const available = useMemo(() => reviewBoards.filter((board) => board.group === group), [group, reviewBoards])
   const [selectedId, setSelectedId] = useState('leader-ky-lan')
   const selected = available.find((board) => board.id === selectedId) || available[0]
-  const previewHonorees = selected.honorees
+  const boardCode = SUPABASE_BOARD_CODE_BY_LOCAL_ID[selected.id] ?? selected.id
+  const boardHidden = isRecognitionBoardHidden(
+    selected.id,
+    snapshot?.visibilityRules ?? [],
+    SUPABASE_BOARD_CODE_BY_LOCAL_ID,
+  )
+  const effectiveSelected = snapshot?.boards.find((board) => board.id === selected.id)
+  const previewHonorees = effectiveSelected?.honorees ?? []
+  const previewPodium = podiumHonorees(previewHonorees)
+  const previewRanking = rankingListHonorees(previewHonorees)
+  const hiddenPeopleCount = new Set(
+    selected.honorees
+      .filter((person) =>
+        isRecognitionPersonHidden(person.entityCode, snapshot?.visibilityRules ?? [])
+      )
+      .map((person) => normalizeVisibilityKey(person.entityCode))
+      .filter(Boolean),
+  ).size
+  const hiddenTotal = (snapshot?.visibilityRules ?? []).filter((rule) => rule.hidden).length
 
   useEffect(() => { if (available[0]) setSelectedId(available[0].id) }, [available])
+
+  const updateVisibility = async (input: {
+    targetType: 'person' | 'board'
+    targetKey: string
+    hidden: boolean
+    label: string
+  }) => {
+    if (!snapshot) return notify('Chưa có lô dữ liệu thật để thay đổi hiển thị.')
+    if (input.hidden && !visibilityReason.trim()) {
+      return notify('Hãy nhập lý do trước khi ẩn để hệ thống lưu lịch sử.')
+    }
+    if (input.hidden && !window.confirm(
+      input.targetType === 'person'
+        ? `Ẩn ${input.label} khỏi toàn bộ bảng trong ${periodLabel(snapshot.batch.periodId)}? Thứ hạng kế toán không bị thay đổi.`
+        : `Ẩn toàn bộ giải ${input.label} trong ${periodLabel(snapshot.batch.periodId)}?`,
+    )) return
+
+    const busyKey = `${input.targetType}:${input.targetKey}`
+    setVisibilityBusy(busyKey)
+    try {
+      await setRecognitionVisibilityRule({
+        periodId: snapshot.batch.periodId,
+        targetType: input.targetType,
+        targetKey: input.targetKey,
+        hidden: input.hidden,
+        reason: input.hidden
+          ? visibilityReason.trim()
+          : `Khôi phục hiển thị ${input.label}`,
+      })
+      await refreshSnapshot()
+      if (input.hidden) setVisibilityReason('')
+      notify(
+        `${input.hidden ? 'Đã ẩn' : 'Đã hiện lại'} ${input.label}. Sheet gốc không đổi; hãy tạo bản phát hành mới để TV áp dụng.`,
+      )
+    } catch (error) {
+      notify(error instanceof Error ? error.message : 'Không lưu được thay đổi hiển thị.')
+    } finally {
+      setVisibilityBusy('')
+    }
+  }
 
   return (
     <>
@@ -594,7 +680,7 @@ function BoardsPage({ notify }: { notify: (message: string) => void }) {
         <div className="segmented-control">
           {([['manager', 'Quản lý CN'], ['leader', 'Leader'], ['fulltime', 'Sale Full-time'], ['parttime', 'Sale Part-time'], ['team', 'Team']] as const).map(([id, label]) => <button className={group === id ? 'active' : ''} onClick={() => setGroup(id)} key={id}>{label}</button>)}
         </div>
-        <div className="board-toolbar__actions"><StatusPill tone={usingLiveData ? snapshot?.batch.status === 'validated' ? 'success' : 'warning' : loading ? 'info' : 'danger'}>{usingLiveData ? `SUPABASE · ${snapshot?.batch.status.toUpperCase()}` : loading ? 'ĐANG TẢI SUPABASE' : 'CHƯA CÓ DỮ LIỆU THẬT'}</StatusPill><button className="button button--secondary" onClick={() => notify(usingLiveData ? `Nguồn ${selected.sourceRange}.` : loadError || 'Chưa có lô dữ liệu thật để xem nguồn.')}><SlidersHorizontal size={16} /> Xem nguồn</button><button className="button button--gold" onClick={() => notify(snapshot?.batch.status === 'validated' ? `Lô #${snapshot.batch.sequence} đã được duyệt.` : 'Duyệt toàn bộ lô tại trang Dữ liệu Sheet trước khi phát hành.')}><ShieldCheck size={16} /> Trạng thái duyệt</button></div>
+        <div className="board-toolbar__actions"><StatusPill tone={usingLiveData ? snapshot?.batch.status === 'validated' ? 'success' : 'warning' : loading ? 'info' : 'danger'}>{usingLiveData ? `SUPABASE · ${snapshot?.batch.status.toUpperCase()}` : loading ? 'ĐANG TẢI SUPABASE' : 'CHƯA CÓ DỮ LIỆU THẬT'}</StatusPill>{hiddenTotal > 0 && <StatusPill tone="warning">{hiddenTotal} QUY TẮC ẨN</StatusPill>}<button className="button button--secondary" onClick={() => notify(usingLiveData ? `Nguồn ${selected.sourceRange}.` : loadError || 'Chưa có lô dữ liệu thật để xem nguồn.')}><SlidersHorizontal size={16} /> Xem nguồn</button><button className="button button--gold" onClick={() => notify(snapshot?.batch.status === 'validated' ? `Lô #${snapshot.batch.sequence} đã được duyệt.` : 'Duyệt toàn bộ lô tại trang Dữ liệu Sheet trước khi phát hành.')}><ShieldCheck size={16} /> Trạng thái duyệt</button></div>
       </div>
 
       {available.length > 1 && <div className="subtabs">{available.map((board) => <button className={selected.id === board.id ? 'active' : ''} onClick={() => setSelectedId(board.id)} key={board.id}><span>{board.title}</span><small>{board.threshold}</small></button>)}</div>}
@@ -602,24 +688,48 @@ function BoardsPage({ notify }: { notify: (message: string) => void }) {
       <div className="board-review-grid">
         <section className="board-preview">
           <div className="board-preview__ambient" />
-          <div className="board-preview__header"><Brand /><span>{usingLiveData ? `DỮ LIỆU THẬT · ${periodLabel(snapshot!.batch.periodId).toUpperCase()}` : 'ĐANG CHỜ DỮ LIỆU THẬT TỪ SUPABASE'}</span></div>
+          <div className="board-preview__header"><Brand /><span>{boardHidden ? 'BẢN XEM TRƯỚC · GIẢI ĐANG ẨN' : usingLiveData ? `DỮ LIỆU THẬT · ${periodLabel(snapshot!.batch.periodId).toUpperCase()}` : 'ĐANG CHỜ DỮ LIỆU THẬT TỪ SUPABASE'}</span></div>
           <div className="board-preview__title"><small>{selected.subtitle}</small><h2>{selected.title}</h2><p>{selected.threshold}</p></div>
           <div className="preview-layout">
             {previewHonorees.length ? <>
               <div className="preview-podium">
-                {[previewHonorees[1], previewHonorees[0], previewHonorees[2]].filter(Boolean).map((person) => (
+                {previewPodium.map((person) => (
                   <div className={`preview-person preview-person--${person.rank}`} key={person.name}><span className="preview-medal"><RankBadge rank={person.rank} /></span><Avatar person={person} size="xl" glow={person.rank === 1} /><i>HẠNG {person.rank}</i><strong>{person.shortName}</strong><small>{person.team}</small><b>{formatVnd(person.revenue)}</b></div>
                 ))}
               </div>
-              {previewHonorees.length > 3 && <div className="preview-ranking"><h3>TOP 10 XUẤT SẮC</h3>{previewHonorees.slice(3, 10).map((person) => <div key={person.rank}><span>{person.rank}</span><Avatar person={person} size="sm" /><p><strong>{person.shortName}</strong><small>{person.team}</small></p><b>{formatVnd(person.revenue)}</b></div>)}</div>}
-            </> : <div className="board-empty-state"><Trophy size={34} /><strong>Chưa có kết quả thật cho bảng {selected.title}</strong><span>{loading ? 'Đang tải lô mới nhất từ Supabase.' : loadError || `Sheet hiện không có nhân sự đạt ngưỡng ${selected.threshold.toLowerCase()}.`}</span></div>}
+              {previewRanking.length > 0 && <div className="preview-ranking"><h3>TOP 10 XUẤT SẮC</h3>{previewRanking.map((person) => <div key={person.rank}><span>{person.rank}</span><Avatar person={person} size="sm" /><p><strong>{person.shortName}</strong><small>{person.team}</small></p><b>{formatVnd(person.revenue)}</b></div>)}</div>}
+            </> : <div className="board-empty-state">{boardHidden ? <EyeOff size={34} /> : <Trophy size={34} />}<strong>{boardHidden ? `Giải ${selected.title} đang được Admin ẩn` : `Chưa có kết quả thật cho bảng ${selected.title}`}</strong><span>{boardHidden ? 'Sheet và kết quả kế toán vẫn được giữ nguyên. Hiện lại giải hoặc chuyển sang Bản phát hành để áp dụng thay đổi.' : loading ? 'Đang tải lô mới nhất từ Supabase.' : loadError || `Sheet hiện không có nhân sự đạt ngưỡng ${selected.threshold.toLowerCase()}.`}</span></div>}
           </div>
           <div className="board-preview__footer"><span>UNITE GROUP · NÂNG TẦM CUỘC SỐNG</span><i>•</i><span>Nguồn {selected.sourceRange}</span></div>
         </section>
 
         <aside className="review-sidebar">
-          <div className="review-card"><div className="review-card__head"><span>THÔNG TIN BẢNG</span><StatusPill tone={usingLiveData ? 'success' : 'warning'}>{usingLiveData ? 'SNAPSHOT SUPABASE' : 'CHƯA CÓ SNAPSHOT'}</StatusPill></div><dl><div><dt>Nguồn kiểm tra</dt><dd>{selected.sourceRange}</dd></div><div><dt>Số hạng</dt><dd>{selected.honorees.length}</dd></div><div><dt>Avatar có sẵn</dt><dd>{selected.honorees.filter((person) => person.photoUrl).length}/{selected.honorees.length}</dd></div><div><dt>Ghi đè Admin</dt><dd>Không cho phép tại đây</dd></div><div><dt>Thời lượng</dt><dd>{selected.honorees.length > 3 ? '18 giây' : '14 giây'}</dd></div></dl></div>
-          <div className="review-card"><div className="review-card__head"><span>ĐỐI SOÁT SNAPSHOT</span><button disabled><PencilLine size={15} /> Chỉ đọc</button></div><p className="helper-text"><ShieldCheck size={15} /> {usingLiveData ? 'Kết quả lấy từ award_results; mọi thay đổi phải đi qua Sheet và lô dữ liệu mới.' : 'Không có dữ liệu giả thay thế. Hãy đăng nhập, đồng bộ Sheet và duyệt lô.'}</p></div>
+          <div className="review-card"><div className="review-card__head"><span>THÔNG TIN BẢNG</span><StatusPill tone={boardHidden ? 'warning' : usingLiveData ? 'success' : 'warning'}>{boardHidden ? 'ĐANG ẨN' : usingLiveData ? 'SNAPSHOT SUPABASE' : 'CHƯA CÓ SNAPSHOT'}</StatusPill></div><dl><div><dt>Nguồn kiểm tra</dt><dd>{selected.sourceRange}</dd></div><div><dt>Đang hiển thị</dt><dd>{previewHonorees.length}/{selected.honorees.length} hạng</dd></div><div><dt>Avatar có sẵn</dt><dd>{selected.honorees.filter((person) => person.photoUrl).length}/{selected.honorees.length}</dd></div><div><dt>Cá nhân đang ẩn</dt><dd>{hiddenPeopleCount}</dd></div><div><dt>Thời lượng</dt><dd>{previewRanking.length ? '18 giây' : '14 giây'}</dd></div></dl></div>
+          <div className="review-card visibility-card">
+            <div className="review-card__head"><span>ẨN TẠM THỜI</span><StatusPill tone={hiddenPeopleCount || boardHidden ? 'warning' : 'success'}>{hiddenPeopleCount || boardHidden ? 'CÓ NGOẠI LỆ' : 'HIỂN THỊ ĐỦ'}</StatusPill></div>
+            <p className="helper-text"><ShieldCheck size={15} /> Chỉ thay đổi màn hình của {snapshot ? periodLabel(snapshot.batch.periodId) : 'kỳ đang chọn'}; không sửa Sheet và không đổi thứ hạng kế toán.</p>
+            <label className="visibility-reason"><span>Lý do khi ẩn</span><textarea value={visibilityReason} onChange={(event) => setVisibilityReason(event.target.value)} placeholder="Ví dụ: Tạm ẩn theo yêu cầu nhân sự" maxLength={240} /></label>
+            <button
+              className={`visibility-board-toggle ${boardHidden ? 'is-restore' : ''}`}
+              disabled={!snapshot || Boolean(visibilityBusy)}
+              onClick={() => void updateVisibility({ targetType: 'board', targetKey: boardCode, hidden: !boardHidden, label: selected.title })}
+            >
+              {boardHidden ? <Eye size={17} /> : <EyeOff size={17} />}
+              {boardHidden ? 'Hiện lại toàn bộ giải' : 'Ẩn toàn bộ giải này'}
+            </button>
+            <div className="visibility-people">
+              {selected.honorees.map((person) => {
+                const personHidden = isRecognitionPersonHidden(person.entityCode, snapshot?.visibilityRules ?? [])
+                const personKey = person.entityCode?.trim() ?? ''
+                const busy = visibilityBusy === `person:${personKey}`
+                return <div className={personHidden ? 'is-hidden' : ''} key={`${person.rank}-${person.entityCode ?? person.name}`}><Avatar person={person} size="sm" /><p><strong>#{person.rank} · {person.shortName}</strong><small>{personKey || 'Chưa có MNV'} · {person.branch || person.team}</small></p><button disabled={!snapshot || !personKey || Boolean(visibilityBusy)} onClick={() => void updateVisibility({ targetType: 'person', targetKey: personKey, hidden: !personHidden, label: person.name })}>{busy ? <RefreshCw className="spin" size={16} /> : personHidden ? <Eye size={16} /> : <EyeOff size={16} />}<span>{personHidden ? 'Hiện lại' : 'Ẩn'}</span></button></div>
+              })}
+              {!selected.honorees.length && <small className="visibility-people__empty">Chưa có nhân sự trong bảng này.</small>}
+            </div>
+            <p className="visibility-scope-note">Ẩn theo MNV sẽ áp dụng cho mọi lần người đó xuất hiện trong kỳ, ví dụ cùng một QLCN phụ trách DOC1 và DFC.</p>
+            {(hiddenPeopleCount > 0 || boardHidden) && <div className="visibility-release-note"><AlertTriangle size={16} /><span><strong>Bản TV đang phát chưa đổi.</strong> Hãy tạo và phát một phiên bản mới.</span></div>}
+            {(hiddenPeopleCount > 0 || boardHidden) && <button className="button button--wide button--gold" onClick={() => navigate('releases')}><Rocket size={16} /> Sang Bản phát hành</button>}
+          </div>
           <button className="button button--wide button--secondary" onClick={() => window.open(`${window.location.href.split('#')[0]}#/tv?board=${selected.id}`, '_blank')}><Eye size={17} /> Xem bản TV đã phát hành</button>
         </aside>
       </div>
@@ -797,7 +907,7 @@ function ReleasesPage({ notify }: { notify: (message: string) => void }) {
       notify('Hãy nhập mã phiên bản phát hành.')
       return
     }
-    if (!validatedSnapshot || validatedSnapshot.boards.length === 0) {
+    if (!validatedSnapshot || validatedSnapshot.allBoards.length === 0) {
       notify('Chưa có lô Supabase đã validated và có kết quả vinh danh. Hãy đồng bộ rồi duyệt lô trước.')
       return
     }
@@ -810,7 +920,10 @@ function ReleasesPage({ notify }: { notify: (message: string) => void }) {
         periodId: validatedSnapshot.batch.periodId,
         importBatchId: validatedSnapshot.batch.id,
         manifest: buildReleaseManifest(draft.snapshot, releaseVersion.trim(), {
-          boards: validatedSnapshot.boards,
+          // The database release trigger applies visibility rules atomically.
+          // Keep the complete board template here so a later "Hiện lại" can
+          // restore the same background/logo instead of losing the slide.
+          boards: validatedSnapshot.allBoards,
           periodLabel: periodLabel(validatedSnapshot.batch.periodId),
           periodId: validatedSnapshot.batch.periodId,
           importBatchId: validatedSnapshot.batch.id,
@@ -849,7 +962,8 @@ function ReleasesPage({ notify }: { notify: (message: string) => void }) {
       }
       notify(`Đã phát ${result.releaseVersion ?? readyRelease.version} tới ${result.targets ?? 9} màn hình.`)
     } catch (error) {
-      notify(error instanceof Error ? error.message : 'Không thể phát hành tới TV.')
+      const message = error instanceof Error ? error.message : 'Không thể phát hành tới TV.'
+      notify(`${message} Nếu vừa ẩn/hiện sau khi tạo READY, hãy tạo một bản READY mới.`)
     } finally {
       setReleaseBusy('')
     }
@@ -858,7 +972,7 @@ function ReleasesPage({ notify }: { notify: (message: string) => void }) {
   return (
     <>
       <section className="release-readiness">
-        <div><StatusPill tone={validatedSnapshot ? 'success' : 'warning'}>{validatedSnapshot ? 'DỮ LIỆU ĐÃ VALIDATED' : batchLoading ? 'ĐANG KIỂM TRA DỮ LIỆU' : 'CHƯA THỂ PHÁT HÀNH'}</StatusPill><h2>{validatedSnapshot ? `${periodLabel(validatedSnapshot.batch.periodId)} · lô #${validatedSnapshot.batch.sequence}` : 'Cần một lô Supabase đã duyệt'}</h2><p>{validatedSnapshot ? `${validatedSnapshot.boards.length} bảng thật sẽ được đóng gói vào manifest.` : batchError || 'Vào Dữ liệu Sheet để đồng bộ và duyệt lô trước.'}</p></div>
+        <div><StatusPill tone={validatedSnapshot ? 'success' : 'warning'}>{validatedSnapshot ? 'DỮ LIỆU ĐÃ VALIDATED' : batchLoading ? 'ĐANG KIỂM TRA DỮ LIỆU' : 'CHƯA THỂ PHÁT HÀNH'}</StatusPill><h2>{validatedSnapshot ? `${periodLabel(validatedSnapshot.batch.periodId)} · lô #${validatedSnapshot.batch.sequence}` : 'Cần một lô Supabase đã duyệt'}</h2><p>{validatedSnapshot ? `${validatedSnapshot.boards.length}/${validatedSnapshot.allBoards.length} bảng đang được phép hiển thị; quy tắc ẩn sẽ được khóa vào bản mới.` : batchError || 'Vào Dữ liệu Sheet để đồng bộ và duyệt lô trước.'}</p></div>
         <div className="readiness-track"><div><span style={{ width: validatedSnapshot ? '100%' : '0%' }} /></div><p><b>{validatedSnapshot ? '100%' : '0%'}</b><span>{validatedSnapshot ? 'Dữ liệu đã đủ điều kiện đóng gói' : 'Chưa có lô đã duyệt'}</span></p></div>
         <button className="button button--secondary" onClick={() => notify(readyRelease ? `Có thể phát lại tín hiệu cho ${readyRelease.version} sau khi bản được publish.` : 'Chưa có bản READY mới để gửi tín hiệu.')}><RefreshCw size={16} /> Gửi lại tín hiệu</button>
       </section>

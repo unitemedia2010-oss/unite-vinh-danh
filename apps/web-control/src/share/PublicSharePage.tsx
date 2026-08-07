@@ -17,7 +17,11 @@ import { Brand } from '../components/Brand'
 import { RankBadge } from '../components/RankBadge'
 import { getRecognitionVisualPreset } from '../data/recognitionPresets'
 import { formatVnd } from '../lib/format'
-import { honoreeContextLabel } from '../lib/honoreeDisplay'
+import {
+  honoreeContextLabel,
+  podiumHonorees,
+  rankingListHonorees,
+} from '../lib/honoreeDisplay'
 import { playlistConfigFromReleaseManifest } from '../lib/releaseManifest'
 import {
   getPublicShareManifest,
@@ -256,7 +260,9 @@ export function PublicSharePage() {
   }
 
   const board = selectedSlide.recognitionBoard
-  const hasRanking = board.honorees.length > 3
+  const podium = podiumHonorees(board.honorees)
+  const ranking = rankingListHonorees(board.honorees)
+  const hasRanking = ranking.length > 0
   const preset = getRecognitionVisualPreset(board.id)
   const backgroundUrl = selectedSlide.backgroundUrl || preset?.backgroundUrl
   const boardStyle = backgroundUrl
@@ -296,7 +302,7 @@ export function PublicSharePage() {
 
           <div className="share-board__stage">
             <div className="share-podium">
-              {board.honorees.slice(0, 3).map((person) => (
+              {podium.map((person) => (
                 <article className={`share-winner share-winner--${person.rank}`} key={`${person.rank}-${person.name}`}>
                   <div className="share-winner__halo" />
                   <span className="share-winner__medal">
@@ -315,7 +321,7 @@ export function PublicSharePage() {
             {hasRanking && (
               <div className="share-ranking">
                 <div className="share-ranking__head"><span>TOP 10 XUẤT SẮC</span><span>DOANH SỐ</span></div>
-                {board.honorees.slice(3, 10).map((person) => (
+                {ranking.map((person) => (
                   <article key={`${person.rank}-${person.name}`}>
                     <span>{String(person.rank).padStart(2, '0')}</span>
                     <Avatar person={person} size="sm" />

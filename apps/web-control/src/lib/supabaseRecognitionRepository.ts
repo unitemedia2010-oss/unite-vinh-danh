@@ -1,6 +1,11 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { boards as mockBoards } from '../data/mock'
 import type { Board, Honoree } from '../types'
+import {
+  applyRecognitionVisibility,
+  type RecognitionVisibilityRule,
+  type RecognitionVisibilityTarget,
+} from './recognitionVisibility'
 import { getSupabase } from './supabase'
 import { SUPABASE_BOARD_CODE_BY_LOCAL_ID } from './supabasePlaylistRepository'
 
@@ -49,7 +54,11 @@ export interface RecognitionImportBatch {
 
 export interface RecognitionBatchSnapshot {
   batch: RecognitionImportBatch
+  /** All accounting results, including entries hidden by Admin for this period. */
+  allBoards: Board[]
+  /** Release-safe boards after period visibility rules are applied. */
   boards: Board[]
+  visibilityRules: RecognitionVisibilityRule[]
 }
 
 type BatchRow = {
@@ -96,6 +105,16 @@ type AwardResultRow = {
   board: AwardBoardRow | AwardBoardRow[] | null
 }
 
+type VisibilityRuleRow = {
+  id: string
+  period_id: string
+  target_type: RecognitionVisibilityTarget
+  target_key: string
+  is_hidden: boolean
+  reason: string | null
+  updated_at: string
+}
+
 const requireSession = async () => {
   const supabase = getSupabase()
   if (!supabase) throw new Error('Supabase chưa được cấu hình.')
@@ -121,6 +140,16 @@ const batchFromRow = (row: BatchRow): RecognitionImportBatch => ({
   warningCount: row.warning_count,
   warnings: Array.isArray(row.warnings) ? row.warnings : [],
   metadata: recordValue(row.metadata),
+})
+
+const visibilityRuleFromRow = (row: VisibilityRuleRow): RecognitionVisibilityRule => ({
+  id: row.id,
+  periodId: row.period_id,
+  targetType: row.target_type,
+  targetKey: row.target_key,
+  hidden: row.is_hidden,
+  reason: row.reason ?? '',
+  updatedAt: row.updated_at,
 })
 
 const shortName = (name: string) => {
@@ -238,15 +267,76 @@ export const loadLatestRecognitionBatch = async (
   if (error) throw error
   if (!data) return null
   const batch = batchFromRow(data as BatchRow)
-  const { data: resultData, error: resultError } = await supabase
-    .from('award_results')
-    .select('id,rank,display_name,entity_code,branch_code,team_code,role_label,revenue_vnd,display_revenue,photo_path,needs_review,metadata,board:award_boards!inner(id,code,name,audience_type,tier_order,rank_limit,layout_key,rule_config,theme)')
-    .eq('batch_id', batch.id)
-    .order('rank', { ascending: true })
+  const [resultResponse, visibilityResponse] = await Promise.all([
+    supabase
+      .from('award_results')
+      .select('id,rank,display_name,entity_code,branch_code,team_code,role_label,revenue_vnd,display_revenue,photo_path,needs_review,metadata,board:award_boards!inner(id,code,name,audience_type,tier_order,rank_limit,layout_key,rule_config,theme)')
+      .eq('batch_id', batch.id)
+      .order('rank', { ascending: true }),
+    supabase
+      .from('recognition_visibility_rules')
+      .select('id,period_id,target_type,target_key,is_hidden,reason,updated_at')
+      .eq('period_id', batch.periodId)
+      .eq('is_hidden', true)
+      .order('updated_at', { ascending: false }),
+  ])
+  const { data: resultData, error: resultError } = resultResponse
   if (resultError) throw resultError
+  if (visibilityResponse.error) throw visibilityResponse.error
+  const allBoards = await boardsFromResults(
+    supabase,
+    batch,
+    (resultData ?? []) as unknown as AwardResultRow[],
+  )
+  const visibilityRules = ((visibilityResponse.data ?? []) as VisibilityRuleRow[])
+    .map(visibilityRuleFromRow)
   return {
     batch,
-    boards: await boardsFromResults(supabase, batch, (resultData ?? []) as unknown as AwardResultRow[]),
+    allBoards,
+    boards: applyRecognitionVisibility(
+      allBoards,
+      visibilityRules,
+      SUPABASE_BOARD_CODE_BY_LOCAL_ID,
+    ),
+    visibilityRules,
+  }
+}
+
+export const setRecognitionVisibilityRule = async (input: {
+  periodId: string
+  targetType: RecognitionVisibilityTarget
+  targetKey: string
+  hidden: boolean
+  reason: string
+}): Promise<RecognitionVisibilityRule> => {
+  const { supabase } = await requireSession()
+  const { data, error } = await supabase.rpc('set_vinhdanh_visibility_rule', {
+    p_period_id: input.periodId,
+    p_target_type: input.targetType,
+    p_target_key: input.targetKey,
+    p_hidden: input.hidden,
+    p_reason: input.reason.trim() || null,
+  })
+  if (error) throw error
+  const row = recordValue(data)
+  if (
+    typeof row.id !== 'string' ||
+    typeof row.periodId !== 'string' ||
+    (row.targetType !== 'person' && row.targetType !== 'board') ||
+    typeof row.targetKey !== 'string' ||
+    typeof row.hidden !== 'boolean' ||
+    typeof row.updatedAt !== 'string'
+  ) {
+    throw new Error('Supabase trả về quy tắc hiển thị không hợp lệ.')
+  }
+  return {
+    id: row.id,
+    periodId: row.periodId,
+    targetType: row.targetType,
+    targetKey: row.targetKey,
+    hidden: row.hidden,
+    reason: typeof row.reason === 'string' ? row.reason : '',
+    updatedAt: row.updatedAt,
   }
 }
 

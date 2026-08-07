@@ -23,7 +23,11 @@ import { Brand } from '../components/Brand'
 import { RankBadge } from '../components/RankBadge'
 import { getRecognitionVisualPreset } from '../data/recognitionPresets'
 import { formatClock, formatFullDate, formatVnd } from '../lib/format'
-import { honoreeContextLabel } from '../lib/honoreeDisplay'
+import {
+  honoreeContextLabel,
+  podiumHonorees,
+  rankingListHonorees,
+} from '../lib/honoreeDisplay'
 import {
   isWithinSchedule,
   normalizePlaylistItem,
@@ -712,14 +716,15 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
 }
 
 function RecognitionSlide({ board }: { board: Board }) {
-  const top = board.honorees.slice(0, 3)
-  const hasRanking = board.honorees.length > 3
+  const top = podiumHonorees(board.honorees)
+  const ranking = rankingListHonorees(board.honorees)
+  const hasRanking = ranking.length > 0
   return (
     <section className={`recognition-slide ${hasRanking ? '' : 'recognition-slide--top-only'}`}>
       <div className="recognition-title"><div className="recognition-title__icon"><Trophy size={20} /></div><p>{board.subtitle}</p><h1>{board.title}</h1><span>{board.threshold}</span></div>
       <div className="recognition-content">
         <div className="tv-podium">
-          {[top[1], top[0], top[2]].filter(Boolean).map((person, visualIndex) => (
+          {top.map((person, visualIndex) => (
             <article className={`tv-winner tv-winner--${person.rank}`} key={`${person.rank}-${person.name}-${person.branch}`} style={{ '--winner-delay': `${visualIndex * 0.12}s` } as CSSProperties}>
               <div className="tv-winner__halo" />
               <span className="tv-winner__medal"><RankBadge rank={person.rank} /></span>
@@ -732,7 +737,7 @@ function RecognitionSlide({ board }: { board: Board }) {
             </article>
           ))}
         </div>
-        {hasRanking && <div className="tv-ranking"><div className="tv-ranking__head"><span>TOP 10 XUẤT SẮC</span><i>DOANH SỐ</i></div>{board.honorees.slice(3, 10).map((person, listIndex) => <div className="tv-ranking__row" key={person.rank} style={{ '--row-delay': `${0.34 + listIndex * 0.055}s` } as CSSProperties}><span>{String(person.rank).padStart(2, '0')}</span><Avatar person={person} size="sm" /><p><strong>{person.shortName}</strong><small>{honoreeContextLabel(board.group, person)}</small></p><b>{formatVnd(person.revenue)}</b></div>)}</div>}
+        {hasRanking && <div className="tv-ranking"><div className="tv-ranking__head"><span>TOP 10 XUẤT SẮC</span><i>DOANH SỐ</i></div>{ranking.map((person, listIndex) => <div className="tv-ranking__row" key={person.rank} style={{ '--row-delay': `${0.34 + listIndex * 0.055}s` } as CSSProperties}><span>{String(person.rank).padStart(2, '0')}</span><Avatar person={person} size="sm" /><p><strong>{person.shortName}</strong><small>{honoreeContextLabel(board.group, person)}</small></p><b>{formatVnd(person.revenue)}</b></div>)}</div>}
       </div>
       <p className="recognition-caption"><Sparkles size={15} /> Thành tích hôm nay là cảm hứng cho hành trình ngày mai</p>
     </section>

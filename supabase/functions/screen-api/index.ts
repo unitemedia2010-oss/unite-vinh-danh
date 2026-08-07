@@ -4,6 +4,7 @@ import { randomPairingCode, randomToken, sha256 } from "../_shared/crypto.ts";
 import { findRejectedReportedReleaseId } from "../_shared/release-validation.ts";
 import {
   consumeRateLimit,
+  omitHiddenRecognitionItems,
   publicManifestMatchesRelease,
   publicManifestResponseHeaders,
   sanitizePublicManifest,
@@ -246,7 +247,7 @@ async function latestPublicManifest(request: Request): Promise<Response> {
       activateAt: release.activate_at,
       publishedAt: release.published_at,
       updatedAt: release.updated_at,
-      manifest: sanitizePublicManifest(signed),
+      manifest: sanitizePublicManifest(omitHiddenRecognitionItems(signed)),
     },
     serverTime: now,
   }, 200, publicManifestResponseHeaders());
@@ -571,8 +572,12 @@ Deno.serve(async (request) => {
           serverTime: new Date().toISOString(),
         });
       }
+      const signedReleaseManifest = await signedManifest(release.manifest ?? {});
       return jsonResponse({
-        release: { ...release, manifest: await signedManifest(release.manifest ?? {}) },
+        release: {
+          ...release,
+          manifest: omitHiddenRecognitionItems(signedReleaseManifest),
+        },
         currentReleaseId: state.current_release_id,
         screenId: registration.screen_id,
         screen: registration.screen ?? null,

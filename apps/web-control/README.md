@@ -45,6 +45,18 @@ từng trang và media vào PostgreSQL/Storage; nút **Tải từ Cloud** nạp 
 Admin xác nhận phát tới 9 TV. GitHub Pages chỉ là hosting tĩnh; đồng bộ nhiều thiết
 bị vẫn đi qua Supabase.
 
+## Ẩn tạm thời một cá nhân hoặc một giải
+
+Tại **Bảng vinh danh**, Admin/Super Admin có thể nhập lý do rồi ẩn một nhân sự
+theo MNV hoặc ẩn toàn bộ giải trong kỳ đang xem. Ẩn theo MNV áp dụng cho mọi
+lượt xuất hiện của người đó trong cùng kỳ; ví dụ `U177` xuất hiện ở cả DOC1 và
+DFC sẽ được ẩn ở cả hai dòng. Dữ liệu Sheet, `award_results` và thứ hạng kế toán
+không bị sửa.
+
+Thay đổi chỉ có hiệu lực trên TV và link chia sẻ sau khi Admin sang **Bản phát
+hành**, tạo một bản `READY` mới và xác nhận phát. Nút **Hiện lại** dùng cùng quy
+trình, vì các release đã phát là bất biến và luôn có thể quay lại bản trước.
+
 ## Kết nối Supabase
 
 1. Sao chép `.env.example` thành `.env.local`.

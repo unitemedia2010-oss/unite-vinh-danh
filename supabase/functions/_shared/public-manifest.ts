@@ -10,6 +10,9 @@ const blockedExactKeys = new Set([
   "employeeid",
   "employeecode",
   "entitycode",
+  "visibilityhidden",
+  "visibilityoriginalenabled",
+  "visibilityrevision",
   "apikey",
   "authorization",
   "credential",
@@ -20,6 +23,29 @@ const blockedExactKeys = new Set([
 
 function normalizedKey(key: string): string {
   return key.replace(/[^a-z0-9]/gi, "").toLowerCase();
+}
+
+/** Release rows keep hidden recognition items as an internal presentation
+ * template so a later release can restore the same design. Delivery removes
+ * those items completely, which also protects older Android TV builds that do
+ * not understand the visibility marker. */
+export function omitHiddenRecognitionItems(value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  const manifest = value as Record<string, unknown>;
+  const playlistKey = Array.isArray(manifest.playlist)
+    ? "playlist"
+    : Array.isArray(manifest.items)
+    ? "items"
+    : null;
+  if (!playlistKey) return value;
+  const playlist = manifest[playlistKey] as unknown[];
+  return {
+    ...manifest,
+    [playlistKey]: playlist.filter((item) =>
+      !item || typeof item !== "object" || Array.isArray(item) ||
+      (item as Record<string, unknown>).visibility_hidden !== true
+    ),
+  };
 }
 
 function isInternalKey(key: string): boolean {

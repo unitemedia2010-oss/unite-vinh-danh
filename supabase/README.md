@@ -81,6 +81,20 @@ from `award_results`; schema/period errors fail before publication. A completed
 batch is validated and published automatically, while the transactional release
 RPC keeps the last good release live on any release/database failure.
 
+Emergency presentation exclusions are stored in
+`recognition_visibility_rules`, scoped by `period_id`. The guarded
+`set_vinhdanh_visibility_rule` RPC accepts only Admin/Super Admin calls, requires
+a reason when hiding, and writes `audit_logs`. Person rules use the normalized
+MNV so the same person is hidden from every appearance in that period; board
+rules use the stable `award_boards.code`. Source Sheet rows and `award_results`
+remain unchanged. A release insert applies the active rules atomically, and
+`screen-api` removes internal hidden templates before returning either paired-TV
+or public-share manifests. A rule change therefore requires a new READY release;
+the currently published release remains untouched until explicit publication.
+Each READY manifest also stores a visibility revision. If a rule changes between
+READY creation and Publish, the database rejects the stale release and requires
+Admin to create a new READY candidate.
+
 `screen-api` returns only releases whose database status is `published`. It may return a published
 release before its `activate_at` timestamp so a TV can pre-download media; the TV keeps its current
 release playing and activates the cached release at `activate_at`.
