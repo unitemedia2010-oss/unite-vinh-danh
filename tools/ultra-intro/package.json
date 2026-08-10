@@ -1,0 +1,18 @@
+{
+  "name": "unite-ultra-intro",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "generate:sfx": "node scripts/generate-sfx.mjs",
+    "studio": "remotion studio src/index.ts --no-open",
+    "render": "npm run generate:sfx && remotion render src/index.ts UniteUltraIntro ../../apps/web-control/public/brand/intro-ultra-v1.mp4 --codec=h264 --audio-codec=aac --pixel-format=yuv420p --crf=18 --overwrite"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.506",
+    "@remotion/media": "4.0.506",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "remotion": "4.0.506"
+  }
+}

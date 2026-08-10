@@ -10,12 +10,15 @@ import {
   ShieldCheck,
   Sparkles,
   Trophy,
+  Volume2,
+  VolumeX,
   Wifi,
 } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import { Brand } from '../components/Brand'
 import { RankBadge } from '../components/RankBadge'
 import { getRecognitionVisualPreset } from '../data/recognitionPresets'
+import { useVisualSettings } from '../lib/visualSettings'
 import { formatVnd } from '../lib/format'
 import {
   honoreeContextLabel,
@@ -29,6 +32,9 @@ import {
 } from '../lib/publicShareClient'
 import type { Board, PlaylistDraftItem } from '../types'
 import type { WebScreenRelease } from '../lib/webScreenClient'
+import { UltraEffects } from '../screen/UltraEffects'
+import { IntroPlayer } from '../screen/IntroPlayer'
+import { canStartIntro, shouldReplayIntroOnAutomaticWrap } from '../screen/visualMode'
 
 type ShareStatus = 'loading' | 'ready' | 'empty' | 'error' | 'demo-blocked'
 
@@ -95,6 +101,7 @@ const buildShareUrl = (boardId?: string) => {
 }
 
 export function PublicSharePage() {
+  const visualSettings = useVisualSettings()
   const [status, setStatus] = useState<ShareStatus>('loading')
   const [dataset, setDataset] = useState<ShareDataset | null>(null)
   const [selectedBoardId, setSelectedBoardId] = useState(readBoardFromHash)
@@ -102,7 +109,10 @@ export function PublicSharePage() {
   const [copied, setCopied] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null)
+  const [introPhase, setIntroPhase] = useState<'waiting' | 'playing' | 'done'>('waiting')
+  const [muted, setMuted] = useState(false)
   const datasetRef = useRef<ShareDataset | null>(null)
+  const introReleaseRef = useRef<string | null>(null)
 
   const refresh = useCallback(async (silent = false, signal?: AbortSignal) => {
     if (!silent) setRefreshing(true)
@@ -184,6 +194,17 @@ export function PublicSharePage() {
   }, [dataset, selectedBoardId])
 
   useEffect(() => {
+    if (!dataset || !canStartIntro('ultra', status === 'ready', true, dataset.release.id)) {
+      setIntroPhase('waiting')
+      return
+    }
+    if (introReleaseRef.current !== dataset.release.id) {
+      introReleaseRef.current = dataset.release.id
+      setIntroPhase('playing')
+    }
+  }, [dataset, status])
+
+  useEffect(() => {
     document.title = selectedSlide
       ? `${selectedSlide.recognitionBoard.title} · Unite Vinh Danh`
       : 'Unite Vinh Danh · Bản chia sẻ'
@@ -201,6 +222,20 @@ export function PublicSharePage() {
     const next = (current + direction + dataset.slides.length) % dataset.slides.length
     selectBoard(dataset.slides[next].recognitionBoard.id)
   }
+
+  useEffect(() => {
+    if (!dataset || !selectedSlide || introPhase !== 'done') return
+    const current = dataset.slides.indexOf(selectedSlide)
+    const timer = window.setTimeout(() => {
+      const next = (current + 1) % dataset.slides.length
+      const wrapped = shouldReplayIntroOnAutomaticWrap('ultra', current, dataset.slides.length, true)
+      const nextBoardId = dataset.slides[next].recognitionBoard.id
+      setSelectedBoardId(nextBoardId)
+      window.history.replaceState(null, '', buildShareUrl(nextBoardId))
+      if (wrapped) setIntroPhase('playing')
+    }, Math.max(5, selectedSlide.duration) * 1000)
+    return () => window.clearTimeout(timer)
+  }, [dataset, introPhase, selectedSlide])
 
   const copyLink = async () => {
     const url = buildShareUrl(selectedSlide?.recognitionBoard.id)
@@ -263,10 +298,18 @@ export function PublicSharePage() {
   const podium = podiumHonorees(board.honorees)
   const ranking = rankingListHonorees(board.honorees)
   const hasRanking = ranking.length > 0
-  const preset = getRecognitionVisualPreset(board.id)
+  let preset = getRecognitionVisualPreset(board.id)
+  if (preset && visualSettings.boardBadges[board.id]) {
+    preset = { ...preset, badgeUrl: visualSettings.boardBadges[board.id] }
+  }
+
   const backgroundUrl = selectedSlide.backgroundUrl || preset?.backgroundUrl
-  const boardStyle = backgroundUrl
-    ? { '--share-board-bg': `url("${backgroundUrl}")` } as CSSProperties
+  const bgStyle = backgroundUrl
+    ? {
+        backgroundImage: `url("${backgroundUrl}")`,
+        backgroundSize: selectedSlide.backgroundFit,
+        backgroundPosition: selectedSlide.backgroundPosition,
+      } as CSSProperties
     : undefined
 
   return (
@@ -277,6 +320,9 @@ export function PublicSharePage() {
           <Wifi size={15} /><span>DỮ LIỆU ĐÃ PHÁT HÀNH</span>
         </div>
         <div className="public-share__actions">
+          <button onClick={() => setMuted((value) => !value)} aria-label={muted ? 'Bật âm thanh intro' : 'Tắt âm thanh intro'}>
+            {muted ? <VolumeX /> : <Volume2 />}<span>{muted ? 'Bật tiếng' : 'Âm thanh'}</span>
+          </button>
           <button onClick={copyLink} aria-label={copied ? 'Đã sao chép liên kết' : 'Sao chép liên kết'}>
             {copied ? <Check /> : <Copy />}<span>{copied ? 'Đã sao chép' : 'Sao chép'}</span>
           </button>
@@ -287,8 +333,28 @@ export function PublicSharePage() {
       </header>
 
       <main className="public-share__main">
-        <section className={`share-board ${hasRanking ? 'share-board--with-ranking' : 'share-board--top-only'}`} style={boardStyle}>
-          <div className="share-board__backdrop" />
+        {introPhase === 'playing' && (
+          <IntroPlayer
+            mode="ultra"
+            muted={muted}
+            onMutedChange={setMuted}
+            onFinished={() => setIntroPhase('done')}
+            periodLabel={dataset.periodLabel}
+          />
+        )}
+        <section className={`share-board ${hasRanking ? 'share-board--with-ranking' : 'share-board--top-only'}`}>
+          <div className="share-board__bg" style={bgStyle} />
+          <div
+            className="share-board__backdrop"
+            style={{ background: `rgba(3,5,8,${selectedSlide.overlayOpacity / 100})` }}
+          />
+          <UltraEffects
+            mode="ultra"
+            boardId={board.id}
+            logoMode={selectedSlide.logoMode}
+            watermarkUrl={selectedSlide.boardWatermarkUrl}
+            visualSettings={visualSettings}
+          />
           <div className="share-board__heading">
             {preset?.badgeUrl
               ? <img src={preset.badgeUrl} alt={`Huy hiệu ${preset.badgeLabel || board.title}`} />

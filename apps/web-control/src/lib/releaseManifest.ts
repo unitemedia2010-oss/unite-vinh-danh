@@ -13,7 +13,7 @@ import type {
   JsonValue,
   SupabasePlaylistSnapshot,
 } from './supabasePlaylistRepository'
-import { SUPABASE_BOARD_CODE_BY_LOCAL_ID } from './supabasePlaylistRepository'
+import { SUPABASE_BOARD_CODE_BY_LOCAL_ID } from './boardCodes'
 
 const MANIFEST_SCHEMA = 'unite-vinhdanh-release'
 const MANIFEST_VERSION = 1

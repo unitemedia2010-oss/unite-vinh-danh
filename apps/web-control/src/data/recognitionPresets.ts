@@ -20,7 +20,7 @@ export interface RecognitionVisualPreset {
 
 const backgrounds = {
   red: {
-    url: recognitionAsset('background-red-crystal.webp'),
+    url: recognitionAsset('background-red-crystal-ultra-v2.webp'),
     label: 'Nền đỏ quyền lực · Thống Soái + Kỳ Lân',
   },
   gold: {

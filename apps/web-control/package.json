@@ -7,7 +7,9 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "node --experimental-strip-types --test src/lib/avatarTransparency.test.mjs src/lib/honoreeDisplay.test.mjs src/lib/publicShareClient.test.mjs src/lib/recognitionVisibility.test.mjs src/lib/sheetRankingSettings.test.mjs",
+    "assets:icons": "node scripts/generate-icons.mjs",
+    "assets:red-background": "node scripts/calibrate-red-bg.mjs",
+    "test": "node --experimental-strip-types --test src/lib/avatarTransparency.test.mjs src/lib/honoreeDisplay.test.mjs src/lib/publicShareClient.test.mjs src/lib/recognitionVisibility.test.mjs src/lib/sheetRankingSettings.test.mjs src/screen/visualMode.test.mjs",
     "lint": "tsc -b --pretty false",
     "check": "npm run lint && npm run build"
   },
@@ -22,6 +24,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "sharp": "^0.35.3",
     "typescript": "^7.0.2",
     "vite": "^8.1.4"
   }

@@ -65,8 +65,8 @@ import {
 import {
   createReadyPlaylistRelease,
   publishReleaseWithAdminSession,
-  SUPABASE_BOARD_CODE_BY_LOCAL_ID,
 } from '../lib/supabasePlaylistRepository'
+import { SUPABASE_BOARD_CODE_BY_LOCAL_ID } from '../lib/boardCodes'
 import {
   isRecognitionBoardHidden,
   isRecognitionPersonHidden,
@@ -75,6 +75,7 @@ import {
 import { EmployeePhotosPage } from './EmployeePhotosPage'
 import { PlaylistEditorPage } from './PlaylistEditorPage'
 import { SheetRankingColumnEditor } from './SheetRankingColumnEditor'
+import { VisualSettingsPage } from './VisualSettingsPage'
 import {
   approvePairingCode,
   getSupabase,
@@ -82,6 +83,7 @@ import {
   isSupabaseConfigured,
   loadPairingConsole,
   sheetSourceId,
+  setScreenVisualMode,
   type DeviceRegistration,
   type ScreenOption,
 } from '../lib/supabase'
@@ -94,9 +96,9 @@ import type {
   SheetRankingSettings,
 } from '../lib/sheetRankingSettings'
 import { sameSheetRankingSelection } from '../lib/sheetRankingSettings'
-import type { Board } from '../types'
+import type { Board, VisualMode } from '../types'
 
-type Page = 'dashboard' | 'imports' | 'boards' | 'photos' | 'playlist' | 'devices' | 'releases' | 'settings'
+type Page = 'dashboard' | 'imports' | 'boards' | 'photos' | 'playlist' | 'devices' | 'releases' | 'settings' | 'visuals'
 
 const navItems: Array<{ id: Page; label: string; icon: typeof LayoutDashboard; badge?: string }> = [
   { id: 'dashboard', label: 'Tổng quan', icon: LayoutDashboard },
@@ -107,6 +109,7 @@ const navItems: Array<{ id: Page; label: string; icon: typeof LayoutDashboard; b
   { id: 'devices', label: 'Thiết bị TV', icon: MonitorSmartphone, badge: '9' },
   { id: 'releases', label: 'Bản phát hành', icon: PackageCheck },
   { id: 'settings', label: 'Cài đặt hệ thống', icon: Settings2 },
+  { id: 'visuals', label: 'Tùy chỉnh giao diện', icon: Sparkles },
 ]
 
 const pageTitles: Record<Page, { eyebrow: string; title: string; description: string }> = {
@@ -118,6 +121,7 @@ const pageTitles: Record<Page, { eyebrow: string; title: string; description: st
   devices: { eyebrow: '9 CHI NHÁNH', title: 'Thiết bị & màn hình TV', description: 'Kiểm tra kết nối, phiên bản đang chạy và khả năng sẵn sàng.' },
   releases: { eyebrow: 'PHÁT HÀNH CÓ PHIÊN BẢN', title: 'Duyệt, phát và quay lui', description: 'Mỗi lần chỉnh sửa tạo một bản riêng, không ghi đè nội dung đang chạy.' },
   settings: { eyebrow: 'CẤU HÌNH HỆ THỐNG', title: 'Kết nối & quyền truy cập', description: 'Trạng thái Supabase, nguồn Sheet và cài đặt phát mặc định.' },
+  visuals: { eyebrow: 'HIỆU ỨNG & GIAO DIỆN', title: 'Tùy chỉnh Watermark', description: 'Điều chỉnh độ mờ, kích thước và logo riêng của từng bảng vinh danh.' },
 }
 
 function HeaderActions({ onOpenShare }: { onOpenShare: () => void }) {
@@ -223,6 +227,7 @@ export function AdminApp() {
           {page === 'devices' && <DevicesPage openLiveTv={openLiveTv} notify={notify} />}
           {page === 'releases' && <ReleasesPage notify={notify} />}
           {page === 'settings' && <SettingsPage notify={notify} />}
+          {page === 'visuals' && <VisualSettingsPage notify={notify} />}
         </div>
       </main>
       {toast && <div className="toast"><CircleCheckBig size={18} /><span>{toast}</span></div>}
@@ -749,6 +754,9 @@ function DevicesPage({ openLiveTv, notify }: { openLiveTv: () => void; notify: (
   const [registrations, setRegistrations] = useState<DeviceRegistration[]>([])
   const [pairingBusy, setPairingBusy] = useState(false)
   const [deviceError, setDeviceError] = useState('')
+  const [visualModeDrafts, setVisualModeDrafts] = useState<Record<string, VisualMode>>({})
+  const [visualModeDirty, setVisualModeDirty] = useState<Record<string, boolean>>({})
+  const [visualModeSaving, setVisualModeSaving] = useState<Record<string, boolean>>({})
   const approvedByScreen = useMemo(() => {
     const mapped = new Map<string, DeviceRegistration>()
     registrations
@@ -772,6 +780,14 @@ function DevicesPage({ openLiveTv, notify }: { openLiveTv: () => void; notify: (
       const data = await loadPairingConsole()
       setScreenOptions(data.screens)
       setRegistrations(data.registrations)
+      setVisualModeDrafts((current) => Object.fromEntries(
+        data.screens.map((screen) => [
+          screen.id,
+          visualModeDirty[screen.id]
+            ? current[screen.id] ?? 'ultra'
+            : screen.metadata?.presentation?.visualMode ?? 'ultra',
+        ]),
+      ))
       setScreenId((current) => current || data.screens[0]?.id || '')
       setDeviceError('')
     } catch (error) {
@@ -807,6 +823,32 @@ function DevicesPage({ openLiveTv, notify }: { openLiveTv: () => void; notify: (
     setPairingOpen((value) => !value)
   }
 
+  const saveVisualMode = async (screenId: string) => {
+    const mode = visualModeDrafts[screenId] ?? 'ultra'
+    setVisualModeSaving((current) => ({ ...current, [screenId]: true }))
+    try {
+      await setScreenVisualMode(screenId, mode)
+      setScreenOptions((current) => current.map((screen) => screen.id === screenId
+        ? {
+            ...screen,
+            metadata: {
+              ...screen.metadata,
+              presentation: {
+                ...screen.metadata?.presentation,
+                visualMode: mode,
+              },
+            },
+          }
+        : screen))
+      setVisualModeDirty((current) => ({ ...current, [screenId]: false }))
+      notify(`Đã lưu chế độ ${mode === 'ultra' ? 'Ultra' : mode === 'standard' ? 'Chuẩn' : 'Lite'} cho TV.`)
+    } catch (error) {
+      notify(`Lỗi cập nhật chế độ: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      setVisualModeSaving((current) => ({ ...current, [screenId]: false }))
+    }
+  }
+
   return (
     <>
       <section className="device-summary"><div><span className="device-summary__icon"><MonitorSmartphone size={28} /></span><div><h2>{counts.configured || 0} màn hình đã cấu hình</h2><p>{deviceError ? `Chưa tải được trạng thái: ${deviceError}` : 'Danh sách lấy trực tiếp từ Supabase, không dùng trạng thái minh họa.'}</p></div></div><div className="health-legend"><span className="online"><i />{counts.paired} Đã ghép</span><span className="warning"><i />{counts.pending} Chờ duyệt</span><span className="offline"><i />{Math.max(0, counts.configured - counts.paired)} Chưa ghép</span></div><button className="button button--gold" onClick={togglePairing}><Link2 size={16} /> {pairingOpen ? 'Đóng pairing' : 'Ghép nối TV'}</button></section>
@@ -814,11 +856,49 @@ function DevicesPage({ openLiveTv, notify }: { openLiveTv: () => void; notify: (
       <div className="device-grid">
         {screenOptions.map((screen) => {
           const registration = approvedByScreen.get(screen.id)
+          const persistedVisualMode = screen.metadata?.presentation?.visualMode ?? 'ultra'
+          const draftVisualMode = visualModeDrafts[screen.id] ?? persistedVisualMode
+          const isModeSaving = Boolean(visualModeSaving[screen.id])
+          const modeChanged = Boolean(visualModeDirty[screen.id]) && draftVisualMode !== persistedVisualMode
           return (
           <article className={`device-card device-card--${registration ? 'online' : 'offline'}`} key={screen.id}>
             <div className="device-card__top"><div className="device-card__screen"><MonitorSmartphone size={29} /><span>{screen.screen_code}</span></div><StatusPill tone={registration ? 'success' : 'neutral'}>{registration ? 'ĐÃ GHÉP' : 'CHƯA GHÉP'}</StatusPill></div>
             <div className="device-card__title"><h3>{screen.name}</h3><p><MapPin size={14} />{screen.branch?.address || screen.branch?.name || 'Chưa cập nhật địa chỉ'}</p></div>
-            <dl><div><dt>Thiết bị</dt><dd>{registration?.device_name || registration?.device_id || 'Chưa có thiết bị'}</dd></div><div><dt>Nền tảng</dt><dd>{registration?.device_type || '—'}</dd></div><div><dt>Phiên bản app</dt><dd><b>{registration?.app_version || '—'}</b></dd></div><div><dt>Khu vực</dt><dd>{screen.branch?.code || '—'}</dd></div></dl>
+            <dl>
+              <div><dt>Thiết bị</dt><dd>{registration?.device_name || registration?.device_id || 'Chưa có thiết bị'}</dd></div>
+              <div><dt>Nền tảng</dt><dd>{registration?.device_type || '—'}</dd></div>
+              <div><dt>Phiên bản app</dt><dd><b>{registration?.app_version || '—'}</b></dd></div>
+              <div><dt>Khu vực</dt><dd>{screen.branch?.code || '—'}</dd></div>
+              <div>
+                <dt>Hiệu ứng</dt>
+                <dd className="device-card__mode-controls">
+                  <select
+                    value={draftVisualMode}
+                    onChange={(event) => {
+                      const nextMode = event.target.value as VisualMode
+                      setVisualModeDrafts((current) => ({ ...current, [screen.id]: nextMode }))
+                      setVisualModeDirty((current) => ({ ...current, [screen.id]: nextMode !== persistedVisualMode }))
+                    }}
+                    className="select-lite"
+                    aria-label={`Chế độ hiệu ứng của ${screen.name}`}
+                    disabled={isModeSaving}
+                  >
+                    <option value="lite">Lite (Tĩnh)</option>
+                    <option value="standard">Chuẩn</option>
+                    <option value="ultra">Ultra (Cao cấp)</option>
+                  </select>
+                  <button
+                    className="button button--gold device-card__mode-save"
+                    type="button"
+                    disabled={!modeChanged || isModeSaving}
+                    onClick={() => void saveVisualMode(screen.id)}
+                  >
+                    {isModeSaving ? <RefreshCw className="spin" size={14} /> : <ShieldCheck size={14} />}
+                    {isModeSaving ? 'Đang lưu' : 'Lưu chế độ'}
+                  </button>
+                </dd>
+              </div>
+            </dl>
             <div className="device-card__footer"><button onClick={openLiveTv}><Eye size={16} />Mở TV trực tuyến</button><button onClick={() => void refreshPairing()}><RefreshCw size={16} />Làm mới</button><button><MoreHorizontal size={17} /></button></div>
           </article>
         )})}
