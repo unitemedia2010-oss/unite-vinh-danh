@@ -22,6 +22,7 @@ import { Avatar } from '../components/Avatar'
 import { Brand } from '../components/Brand'
 import { RankBadge } from '../components/RankBadge'
 import { getRecognitionVisualPreset } from '../data/recognitionPresets'
+import { useVisualSettings } from '../lib/visualSettings'
 import { formatClock, formatFullDate, formatVnd } from '../lib/format'
 import {
   honoreeContextLabel,
@@ -35,6 +36,14 @@ import {
 import { useMediaAssetUrl } from '../lib/mediaStore'
 import { getPublicShareManifest, PublicShareClientError } from '../lib/publicShareClient'
 import { playlistConfigFromReleaseManifest } from '../lib/releaseManifest'
+import { IntroPlayer } from './IntroPlayer'
+import { UltraEffects } from './UltraEffects'
+import {
+  canStartIntro,
+  resolveVisualMode,
+  shouldPlayIntro,
+  shouldReplayIntroOnAutomaticWrap,
+} from './visualMode'
 import {
   WebScreenClientError,
   getWebScreenCredentials,
@@ -151,20 +160,6 @@ const fallbackBranch = (branchId: string | null) => {
   }
 }
 
-const shouldUseLiteMode = (params: URLSearchParams, publicTv: boolean) => {
-  const override = params.get('lite')?.trim().toLowerCase()
-  if (override === '0' || override === 'false' || override === 'full') return false
-  if (override === '1' || override === 'true' || override === 'lite') return true
-  if (publicTv) return true
-
-  const userAgent = navigator.userAgent
-  const deviceMemory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 0
-  const processorCount = navigator.hardwareConcurrency ?? 0
-  const tvOrAndroidBrowser = /Android|SMART-TV|SmartTV|Tizen|Web0S|HbbTV|NetCast|AFT|BRAVIA|Viera/i.test(userAgent)
-  const limitedHardware = (deviceMemory > 0 && deviceMemory <= 4) || (processorCount > 0 && processorCount <= 4)
-  return tvOrAndroidBrowser || limitedHardware
-}
-
 function ScreenClock({
   online,
   status,
@@ -191,22 +186,30 @@ function ScreenClock({
 }
 
 export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
+  const visualSettings = useVisualSettings()
   const params = useMemo(readHashParams, [])
   const preferredItem = params.get('item')
   const preferredBoard = params.get('board')
   const preferredBranch = params.get('branch')
   const publicTv = mode === 'public'
-  const liteMode = useMemo(() => shouldUseLiteMode(params, publicTv), [params, publicTv])
   const pairedTvEnabled = !publicTv && isWebScreenClientConfigured()
   const requestedBranch = useMemo(() => fallbackBranch(preferredBranch), [preferredBranch])
   const [index, setIndex] = useState(0)
   const [paused, setPaused] = useState(false)
   const [muted, setMuted] = useState(false)
+  const [introAudioBlocked, setIntroAudioBlocked] = useState(false)
   const [online, setOnline] = useState(navigator.onLine)
   const [scheduleNow, setScheduleNow] = useState(new Date())
   const [controls, setControls] = useState(true)
   const [remoteConfig, setRemoteConfig] = useState<PlaylistConfig | null>(null)
   const [remoteScreen, setRemoteScreen] = useState<WebScreen | null>(null)
+  const visualMode = useMemo(
+    () => resolveVisualMode(params, mode, remoteScreen?.presentation),
+    [mode, params, remoteScreen?.presentation],
+  )
+  const [introPhase, setIntroPhase] = useState<'waiting' | 'playing' | 'done'>(
+    shouldPlayIntro(visualMode) ? 'waiting' : 'done',
+  )
   const [connectionPhase, setConnectionPhase] = useState<'loading' | 'registering' | 'pending' | 'approved' | 'error'>(
     publicTv ? 'loading' : pairedTvEnabled ? 'registering' : 'error',
   )
@@ -462,13 +465,18 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
   const uploadedBackgroundUrl = useMediaAssetUrl(slide.backgroundAssetId)
   const uploadedLogoUrl = useMediaAssetUrl(slide.logoAssetId)
   const storedMediaUrl = useMediaAssetUrl(slide.mediaAssetId)
-  const recognitionPreset = slide.kind === 'recognition'
+  let recognitionPreset = slide.kind === 'recognition'
     ? getRecognitionVisualPreset(slide.boardId)
     : undefined
+
+  if (recognitionPreset && slide.kind === 'recognition' && visualSettings.boardBadges[slide.boardId!]) {
+    recognitionPreset = { ...recognitionPreset, badgeUrl: visualSettings.boardBadges[slide.boardId!] }
+  }
+
   const backgroundUrl = uploadedBackgroundUrl || slide.backgroundUrl || recognitionPreset?.backgroundUrl || ''
+
   const logoUrl = uploadedLogoUrl || slide.logoUrl || ''
-  const resolvedVideoUrl = storedMediaUrl
-    || slide.mediaUrl
+  const resolvedVideoUrl = storedMediaUrl || slide.mediaUrl
   const displayedRelease = currentReleaseVersion ?? 'CHƯA NHẬN BẢN'
   const currentSlideIdRef = useRef(slide.id)
   currentSlideIdRef.current = slide.id
@@ -489,9 +497,15 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
             readyReleaseVersion,
           },
           deviceInfo: {
-            viewportWidth: window.innerWidth,
-            viewportHeight: window.innerHeight,
-            online: navigator.onLine,
+            userAgent: navigator.userAgent,
+            width: window.innerWidth,
+            height: window.innerHeight,
+            memory: (navigator as Navigator & { deviceMemory?: number }).deviceMemory,
+            cores: navigator.hardwareConcurrency,
+            connection: (navigator as Navigator & { connection?: { type?: string; effectiveType?: string } }).connection?.effectiveType,
+            requestedMode: visualMode,
+            effectiveMode: visualMode,
+            audioBlocked: introAudioBlocked,
           },
         })
         if (!disposed) {
@@ -523,10 +537,30 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
     readyReleaseId,
     readyReleaseVersion,
     pairedTvEnabled,
+    muted,
+    introAudioBlocked,
+    visualMode,
   ])
 
+  const introReleaseRef = useRef<string | null>(null)
   useEffect(() => {
-    if (paused) return
+    if (!shouldPlayIntro(visualMode)) {
+      setIntroPhase('done')
+      introReleaseRef.current = null
+      return
+    }
+    if (!canStartIntro(visualMode, connectionPhase === 'approved', Boolean(remoteConfig), currentReleaseId)) {
+      setIntroPhase('waiting')
+      return
+    }
+    if (introReleaseRef.current !== currentReleaseId) {
+      introReleaseRef.current = currentReleaseId
+      setIntroPhase('playing')
+    }
+  }, [connectionPhase, currentReleaseId, remoteConfig, visualMode])
+
+  useEffect(() => {
+    if (paused || introPhase !== 'done') return
     const timer = window.setTimeout(() => {
       setIndex((current) => {
         if (current >= slides.length - 1) {
@@ -534,13 +568,16 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
             setPaused(true)
             return current
           }
+          if (shouldReplayIntroOnAutomaticWrap(visualMode, current, slides.length, config.repeat)) {
+            setIntroPhase('playing')
+          }
           return 0
         }
         return current + 1
       })
     }, slide.duration * 1000)
     return () => window.clearTimeout(timer)
-  }, [config.repeat, index, paused, slide.duration, slide.id, slides.length])
+  }, [config.repeat, index, paused, introPhase, slide.duration, slide.id, slides.length, visualMode])
 
   useEffect(() => {
     const scheduleClock = window.setInterval(() => setScheduleNow(new Date()), 30_000)
@@ -598,10 +635,20 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
 
   return (
     <div
-      className={`screen-player screen-player--${slide.kind} ${liteMode ? 'screen-player--lite' : ''} ${!slide.showHeader ? 'screen-player--no-header' : ''} ${!slide.showFooter ? 'screen-player--no-footer' : ''}`}
-      data-performance-mode={liteMode ? 'lite' : 'full'}
+      className={`screen-player screen-player--${slide.kind} screen-player--${visualMode} ${!slide.showHeader ? 'screen-player--no-header' : ''} ${!slide.showFooter ? 'screen-player--no-footer' : ''}`}
+      data-performance-mode={visualMode}
       onMouseMove={revealControls}
     >
+      {introPhase === 'playing' && (
+        <IntroPlayer
+          mode={visualMode}
+          muted={muted}
+          onMutedChange={setMuted}
+          onAudioBlockedChange={setIntroAudioBlocked}
+          onFinished={() => setIntroPhase('done')}
+          periodLabel={currentReleasePeriod || config.name}
+        />
+      )}
       <div className="screen-noise" />
       <div className="screen-grid" />
       {slide.showHeader && (
@@ -621,6 +668,17 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
         style={{ '--slide-transition-duration': `${slide.transitionDuration}s` } as CSSProperties}
       >
         {backgroundUrl && <div className="screen-stage__background" style={backgroundStyle} />}
+
+        {slide.kind === 'recognition' && (
+          <UltraEffects
+            mode={visualMode}
+            boardId={slide.boardId}
+            logoMode={slide.logoMode}
+            watermarkUrl={slide.boardWatermarkUrl}
+            visualSettings={visualSettings}
+          />
+        )}
+
         {backgroundUrl && <div className="screen-stage__overlay" style={{ background: `rgba(3,5,8,${slide.overlayOpacity / 100})` }} />}
         {slide.logoMode === 'default' && recognitionPreset?.badgeUrl && (
           <div
@@ -666,11 +724,14 @@ export function ScreenPlayer({ mode = 'paired' }: { mode?: PlayerMode }) {
         <button onClick={previous} title="Nội dung trước"><ChevronLeft size={22} /></button>
         <button className="screen-controls__primary" onClick={() => setPaused((value) => !value)} title={paused ? 'Tiếp tục' : 'Tạm dừng'}>{paused ? <Play size={22} /> : <Pause size={22} />}</button>
         <button onClick={next} title="Nội dung sau"><ChevronRight size={22} /></button>
-        <button onClick={() => setMuted((value) => !value)} title={muted ? 'Bật tiếng' : 'Tắt tiếng'}>{muted ? <VolumeX size={20} /> : <Volume2 size={20} />}</button>
+        <button onClick={() => setMuted((value) => {
+          if (value) setIntroAudioBlocked(false)
+          return !value
+        })} title={muted ? 'Bật tiếng' : 'Tắt tiếng'}>{muted ? <VolumeX size={20} /> : <Volume2 size={20} />}</button>
         <button onClick={fullscreen} title="Toàn màn hình"><Maximize2 size={19} /></button>
       </div>
 
-      <div key={`progress-${index}-${paused}-${slide.duration}`} className={`screen-progress ${paused ? 'paused' : ''}`}><span style={{ '--slide-duration': `${slide.duration}s` } as CSSProperties} /></div>
+      <div key={`progress-${index}-${paused}-${introPhase}-${slide.duration}`} className={`screen-progress ${paused || introPhase !== 'done' ? 'paused' : ''}`}><span style={{ '--slide-duration': `${slide.duration}s` } as CSSProperties} /></div>
       {!online && <div className="offline-banner"><WifiOff size={16} /> Mất kết nối · TV vẫn phát bản {displayedRelease} đã lưu trên thiết bị</div>}
       {pairedTvEnabled && connectionPhase !== 'approved' && (
         <section className={`web-tv-pairing web-tv-pairing--${connectionPhase}`}>

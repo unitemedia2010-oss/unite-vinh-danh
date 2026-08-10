@@ -26,8 +26,8 @@ type ScreenRequest = {
   readyReleaseId?: string | null;
   currentItemKey?: string | null;
   lastError?: string | null;
-  cacheState?: Record<string, unknown>;
-  deviceInfo?: Record<string, unknown>;
+  cacheState?: unknown;
+  deviceInfo?: unknown;
   pairingCode?: string;
   screenId?: string;
   registrationId?: string;
@@ -35,6 +35,108 @@ type ScreenRequest = {
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const publicManifestRateWindows = new Map<string, RateWindow>();
+type VisualMode = "lite" | "standard" | "ultra";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function visualMode(value: unknown): VisualMode | null {
+  return value === "lite" || value === "standard" || value === "ultra" ? value : null;
+}
+
+function screenPresentation(metadata: unknown): { visualMode: VisualMode } {
+  if (!isRecord(metadata) || !isRecord(metadata.presentation)) {
+    return { visualMode: "ultra" };
+  }
+  return { visualMode: visualMode(metadata.presentation.visualMode) ?? "ultra" };
+}
+
+function sanitizeBranch(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  return {
+    id: value.id,
+    code: value.code,
+    name: value.name,
+    address: value.address,
+  };
+}
+
+function sanitizeScreen(value: unknown): Record<string, unknown> | null {
+  if (!isRecord(value)) return null;
+  return {
+    id: value.id,
+    screen_code: value.screen_code,
+    name: value.name,
+    branch_id: value.branch_id,
+    branch: sanitizeBranch(value.branch),
+    // Never expose arbitrary screens.metadata to a device.
+    presentation: screenPresentation(value.metadata),
+  };
+}
+
+function boundedString(value: unknown, maxLength: number): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, maxLength) : null;
+}
+
+function boundedNumber(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+  integer = false,
+): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const bounded = Math.min(maximum, Math.max(minimum, value));
+  return integer ? Math.round(bounded) : bounded;
+}
+
+function addIfPresent(target: Record<string, unknown>, key: string, value: unknown): void {
+  if (value !== null && value !== undefined) target[key] = value;
+}
+
+function sanitizeCacheState(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) return {};
+  const sanitized: Record<string, unknown> = {};
+  addIfPresent(sanitized, "state", boundedString(value.state, 160));
+  addIfPresent(sanitized, "mode", boundedString(value.mode, 64));
+  addIfPresent(sanitized, "releaseVersion", boundedString(value.releaseVersion, 160));
+  addIfPresent(sanitized, "readyReleaseVersion", boundedString(value.readyReleaseVersion, 160));
+  return sanitized;
+}
+
+function sanitizeDeviceInfo(
+  value: unknown,
+  registration: Record<string, unknown>,
+): Record<string, unknown> {
+  const source = isRecord(value) ? value : {};
+  const sanitized: Record<string, unknown> = {};
+
+  // Use server-authoritative registration values instead of client-reported IDs.
+  addIfPresent(sanitized, "deviceId", boundedString(registration.device_id, 128));
+  addIfPresent(sanitized, "screenId", boundedString(registration.screen_id, 64));
+  const registeredScreen = isRecord(registration.screen) ? registration.screen : null;
+  addIfPresent(sanitized, "branchId", boundedString(registeredScreen?.branch_id, 64));
+
+  addIfPresent(sanitized, "playbackState", boundedString(source.playbackState, 96));
+  addIfPresent(
+    sanitized,
+    "clientTimestampEpochMs",
+    boundedNumber(source.clientTimestampEpochMs, 0, 9_999_999_999_999, true),
+  );
+  addIfPresent(sanitized, "userAgent", boundedString(source.userAgent, 512));
+  addIfPresent(sanitized, "width", boundedNumber(source.width, 1, 16_384, true));
+  addIfPresent(sanitized, "height", boundedNumber(source.height, 1, 16_384, true));
+  addIfPresent(sanitized, "memory", boundedNumber(source.memory, 0, 1_024));
+  addIfPresent(sanitized, "cores", boundedNumber(source.cores, 1, 512, true));
+  addIfPresent(sanitized, "connection", boundedString(source.connection, 40));
+  addIfPresent(sanitized, "requestedMode", visualMode(source.requestedMode));
+  addIfPresent(sanitized, "effectiveMode", visualMode(source.effectiveMode));
+  if (typeof source.audioBlocked === "boolean") sanitized.audioBlocked = source.audioBlocked;
+
+  return sanitized;
+}
 
 function requestIp(request: Request): string {
   return request.headers.get("cf-connecting-ip")?.trim() ||
@@ -68,7 +170,7 @@ async function authorizedRegistration(request: Request) {
   const supabase = serviceClient();
   const { data, error } = await supabase
     .from("device_registrations")
-    .select("id,device_id,device_name,device_type,app_version,screen_id,status,expires_at,screen:screens(id,screen_code,name,branch_id,branch:branches(id,code,name,address))")
+    .select("id,device_id,device_name,device_type,app_version,screen_id,status,expires_at,screen:screens(id,screen_code,name,metadata,branch_id,branch:branches(id,code,name,address))")
     .eq("device_token_hash", tokenHash)
     .maybeSingle();
   // A transient database/PostgREST failure must not look like an invalid
@@ -79,7 +181,11 @@ async function authorizedRegistration(request: Request) {
     await supabase.from("device_registrations").update({ status: "expired" }).eq("id", data.id);
     throw new Error("PAIRING_EXPIRED");
   }
-  return data;
+
+  return {
+    ...data,
+    screen: sanitizeScreen(data.screen),
+  };
 }
 
 async function signedManifest(manifest: Record<string, unknown>) {
@@ -427,6 +533,9 @@ Deno.serve(async (request) => {
       const readyReleaseId = typeof body.readyReleaseId === "string"
         ? body.readyReleaseId.trim().toLowerCase()
         : null;
+      const currentItemKey = boundedString(body.currentItemKey, 200);
+      const lastError = boundedString(body.lastError, 1_000);
+      const appVersion = boundedString(body.appVersion, 80) ?? registration.app_version;
       const reportedReleaseIds = [...new Set(
         [currentReleaseId, readyReleaseId].filter((value): value is string => Boolean(value)),
       )];
@@ -516,13 +625,13 @@ Deno.serve(async (request) => {
         screen_id: registration.screen_id,
         current_release_id: currentReleaseId,
         ready_release_id: readyReleaseId,
-        current_item_key: body.currentItemKey ?? null,
-        connection_state: body.lastError ? "error" : "online",
+        current_item_key: currentItemKey,
+        connection_state: lastError ? "error" : "online",
         last_seen_at: now,
-        last_error: body.lastError ?? null,
-        app_version: body.appVersion ?? registration.app_version,
-        cache_state: body.cacheState ?? {},
-        device_info: body.deviceInfo ?? {},
+        last_error: lastError,
+        app_version: appVersion,
+        cache_state: sanitizeCacheState(body.cacheState),
+        device_info: sanitizeDeviceInfo(body.deviceInfo, registration),
       }, { onConflict: "screen_id" });
       if (error) throw error;
       return jsonResponse({ ok: true, serverTime: now });

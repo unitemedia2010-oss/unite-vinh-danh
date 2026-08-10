@@ -7,13 +7,12 @@ import {
   type RecognitionVisibilityTarget,
 } from './recognitionVisibility'
 import { getSupabase } from './supabase'
-import { SUPABASE_BOARD_CODE_BY_LOCAL_ID } from './supabasePlaylistRepository'
+import {
+  LOCAL_BOARD_ID_BY_SUPABASE_CODE,
+  SUPABASE_BOARD_CODE_BY_LOCAL_ID,
+} from './boardCodes'
 
 type JsonRecord = Record<string, unknown>
-
-const LOCAL_BOARD_ID_BY_SUPABASE_CODE = Object.fromEntries(
-  Object.entries(SUPABASE_BOARD_CODE_BY_LOCAL_ID).map(([localId, code]) => [code, localId]),
-) as Readonly<Record<string, string>>
 
 const accents = [
   '#f2c75c',

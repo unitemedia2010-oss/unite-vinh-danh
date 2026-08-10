@@ -1,4 +1,5 @@
 export type HealthState = 'online' | 'warning' | 'offline'
+export type VisualMode = 'lite' | 'standard' | 'ultra'
 
 export interface Branch {
   id: string
@@ -83,6 +84,7 @@ export interface PlaylistDraftItem extends PlaylistItem {
   backgroundAssetId?: string
   backgroundAssetName?: string
   backgroundUrl?: string
+  boardWatermarkUrl?: string
   backgroundFit: BackgroundFit
   backgroundPosition: BackgroundPosition
   overlayOpacity: number

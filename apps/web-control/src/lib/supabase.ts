@@ -70,6 +70,7 @@ export type ScreenOption = {
   screen_code: string
   name: string
   branch: { code?: string; name?: string; address?: string } | null
+  metadata?: { presentation?: { visualMode?: 'lite' | 'standard' | 'ultra' } }
 }
 
 export type DeviceRegistration = {
@@ -87,7 +88,7 @@ export type DeviceRegistration = {
 export const loadPairingConsole = async () => {
   const { supabase, token } = await authenticatedClient()
   const [screensResult, registrationsResult] = await Promise.all([
-    supabase.from('screens').select('id,screen_code,name,branch:branches(code,name,address)').eq('is_active', true).order('screen_code'),
+    supabase.from('screens').select('id,screen_code,name,metadata,branch:branches(code,name,address)').eq('is_active', true).order('screen_code'),
     supabase.functions.invoke(screenApiFunction, {
       headers: { Authorization: `Bearer ${token}` },
       body: { action: 'registrations' },
@@ -109,4 +110,13 @@ export const approvePairingCode = async (pairingCode: string, screenId: string) 
   })
   if (error) throw error
   return data
+}
+
+export const setScreenVisualMode = async (screenId: string, visualMode: 'lite' | 'standard' | 'ultra') => {
+  const { supabase } = await authenticatedClient()
+  const { error } = await supabase.rpc('set_screen_visual_mode', {
+    p_screen_id: screenId,
+    p_visual_mode: visualMode,
+  })
+  if (error) throw error
 }

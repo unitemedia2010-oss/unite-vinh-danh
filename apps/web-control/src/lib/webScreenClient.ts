@@ -20,12 +20,19 @@ export interface WebScreenBranch {
   address: string
 }
 
+export type WebScreenVisualMode = 'lite' | 'standard' | 'ultra'
+
+export interface WebScreenPresentation {
+  visualMode: WebScreenVisualMode
+}
+
 export interface WebScreen {
   id: string
   screenCode: string
   name: string
   branchId: string
   branch: WebScreenBranch | null
+  presentation: WebScreenPresentation
 }
 
 export interface RegisterWebScreenOptions {
@@ -394,14 +401,30 @@ const parseBranch = (value: unknown): WebScreenBranch | null => {
   }
 }
 
+const parsePresentation = (screen: JsonRecord): WebScreenPresentation => {
+  const direct = isRecord(screen.presentation) ? screen.presentation : null
+  const legacyMetadata = isRecord(screen.metadata) ? screen.metadata : null
+  const legacy = legacyMetadata && isRecord(legacyMetadata.presentation)
+    ? legacyMetadata.presentation
+    : null
+  const candidate = direct?.visualMode ?? legacy?.visualMode
+  return {
+    visualMode: candidate === 'lite' || candidate === 'standard' || candidate === 'ultra'
+      ? candidate
+      : 'ultra',
+  }
+}
+
 const parseScreen = (value: unknown): WebScreen | null => {
   if (!isRecord(value)) return null
+  const presentation = parsePresentation(value)
   return {
     id: requiredString(value, 'id'),
     screenCode: requiredString(value, 'screen_code'),
     name: requiredString(value, 'name'),
     branchId: requiredString(value, 'branch_id'),
     branch: parseBranch(value.branch),
+    presentation,
   }
 }
 
