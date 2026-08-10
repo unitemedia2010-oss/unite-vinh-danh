@@ -7,6 +7,7 @@ import {
   resolveVisualMode,
   shouldReplayIntroOnAutomaticWrap,
   shouldRetryIntroMuted,
+  shouldShowSparks,
   visualModeOverride,
 } from './visualMode.ts'
 
@@ -31,6 +32,12 @@ test('public TV and public share default to Ultra', () => {
   assert.equal(resolveVisualMode(params, 'share'), 'ultra')
   assert.equal(resolveVisualMode(new URLSearchParams('mode=standard'), 'public'), 'ultra')
   assert.equal(resolveVisualMode(new URLSearchParams('lite=1'), 'share'), 'ultra')
+})
+
+test('only Ultra renders the cinematic spark field', () => {
+  assert.equal(shouldShowSparks('ultra'), true)
+  assert.equal(shouldShowSparks('standard'), false)
+  assert.equal(shouldShowSparks('lite'), false)
 })
 
 test('explicit support links override paired screens only', () => {
