@@ -1,0 +1,38 @@
+name: Keep Supabase Alive
+
+# Prevents Supabase Free Plan from pausing the project due to inactivity.
+# Sends a lightweight read query every 12 hours.
+
+on:
+  schedule:
+    # 08:00 UTC (15:00 VN) and 20:00 UTC (03:00 VN)
+    - cron: '0 8,20 * * *'
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Supabase to prevent auto-pause
+        env:
+          SUPABASE_URL: ${{ vars.VITE_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.VITE_SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "::error::Missing VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY in repository variables."
+            exit 1
+          fi
+
+          HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            "${SUPABASE_URL}/rest/v1/app_visual_settings?select=id&limit=1" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}")
+
+          echo "Supabase responded with HTTP ${HTTP_STATUS}"
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "✅ Ping successful — project is alive."
+          else
+            echo "::warning::Supabase returned HTTP ${HTTP_STATUS}. Project may be paused or credentials invalid."
+            exit 1
+          fi
