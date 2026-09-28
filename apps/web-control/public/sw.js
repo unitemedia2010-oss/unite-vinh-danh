@@ -1,4 +1,4 @@
-const CACHE = 'unite-recognition-live-tv-v11'
+const CACHE = 'unite-recognition-live-tv-v12'
 const APP_SHELL = [
   './',
   './index.html',
@@ -125,17 +125,21 @@ self.addEventListener('fetch', (event) => {
   }
 
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const network = fetch(request)
+    caches.match(request, { ignoreSearch: true }).then((cached) => {
+      if (cached) return cached
+      
+      return fetch(request)
         .then((response) => {
-          if (response.ok && response.status === 200 && new URL(request.url).origin === self.location.origin) {
-            const clone = response.clone()
-            caches.open(CACHE).then((cache) => cache.put(request, clone))
+          if (response.ok && response.status === 200) {
+            const isSupabaseStorage = request.url.includes('/storage/v1/object/')
+            if (isSupabaseStorage || new URL(request.url).origin === self.location.origin) {
+              const clone = response.clone()
+              caches.open(CACHE).then((cache) => cache.put(request, clone))
+            }
           }
           return response
         })
         .catch(() => cached)
-      return cached || network
     }),
   )
 })
