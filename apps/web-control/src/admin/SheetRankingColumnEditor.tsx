@@ -27,8 +27,8 @@ const teamOptions: Array<{ column: TeamRankingColumn; title: string; detail: str
 ]
 
 const managerOptions: Array<{ column: ManagerRankingColumn; title: string; detail: string }> = [
-  { column: 'M', title: 'Tổng cọc', detail: 'Dùng đầu tháng khi GDTC chưa cập nhật đủ' },
-  { column: 'O', title: 'Tổng GDTC + HC', detail: 'Dùng khi kế toán đã cập nhật giao dịch thành công' },
+  { column: 'K', title: 'Tổng cọc', detail: 'Dùng đầu tháng khi GDTC chưa cập nhật đủ' },
+  { column: 'L', title: 'Tổng GDTC + HC', detail: 'Dùng khi kế toán đã cập nhật giao dịch thành công' },
 ]
 
 export function SheetRankingColumnEditor({
@@ -68,16 +68,16 @@ export function SheetRankingColumnEditor({
           <button
             type="button"
             className={mode === 'deposit' ? 'active' : ''}
-            onClick={() => choosePreset({ team: 'N', manager: 'M' })}
+            onClick={() => choosePreset({ team: 'N', manager: 'K' })}
           >
-            Đầu tháng <small>N + M</small>
+            Đầu tháng <small>N + K</small>
           </button>
           <button
             type="button"
             className={mode === 'gdtc' ? 'active' : ''}
-            onClick={() => choosePreset({ team: 'P', manager: 'O' })}
+            onClick={() => choosePreset({ team: 'P', manager: 'L' })}
           >
-            Chốt GDTC <small>P + O</small>
+            Chốt GDTC <small>P + L</small>
           </button>
         </div>
       </div>

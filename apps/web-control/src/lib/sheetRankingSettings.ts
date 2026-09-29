@@ -58,9 +58,9 @@ const teamColumnFromRow = (row: SheetMappingSettingRow): TeamRankingColumn => {
 const managerColumnFromRow = (row: SheetMappingSettingRow): ManagerRankingColumn => {
   const column = configuredColumn(row)
   const index = metricColumnIndex(row, 'manager_metric')
-  if ((column === 'M' || !column) && index === 11) return 'M'
-  if ((column === 'O' || !column) && index === 13) return 'O'
-  return column === 'O' ? 'O' : 'M'
+  if ((column === 'K' || !column) && index === 9) return 'K'
+  if ((column === 'L' || !column) && index === 10) return 'L'
+  return column === 'L' ? 'L' : 'K'
 }
 
 export const teamRankingLabel = (column: TeamRankingColumn) =>
@@ -69,9 +69,9 @@ export const teamRankingLabel = (column: TeamRankingColumn) =>
     : 'DS-TEAM cột P · GDTC XÉT BEST TEAM'
 
 export const managerRankingLabel = (column: ManagerRankingColumn) =>
-  column === 'M'
-    ? 'DS-KV cột M · TỔNG CỌC Tn'
-    : 'DS-KV cột O · TỔNG GDTC+HC Tn'
+  column === 'K'
+    ? 'DS-KV cột K · TỔNG CỌC Tn'
+    : 'DS-KV cột L · TỔNG GDTC+HC Tn'
 
 export function parseSheetRankingSettings(
   rows: SheetMappingSettingRow[],
@@ -98,8 +98,8 @@ export function parseSheetRankingSettings(
 export function sheetRankingMode(
   selection: SheetRankingSelection,
 ): 'deposit' | 'gdtc' | 'mixed' {
-  if (selection.team === 'N' && selection.manager === 'M') return 'deposit'
-  if (selection.team === 'P' && selection.manager === 'O') return 'gdtc'
+  if (selection.team === 'N' && selection.manager === 'K') return 'deposit'
+  if (selection.team === 'P' && selection.manager === 'L') return 'gdtc'
   return 'mixed'
 }
 
