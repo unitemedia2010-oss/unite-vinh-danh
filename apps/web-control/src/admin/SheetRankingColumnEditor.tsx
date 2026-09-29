@@ -22,13 +22,13 @@ type Props = {
 }
 
 const teamOptions: Array<{ column: TeamRankingColumn; title: string; detail: string }> = [
-  { column: 'M', title: 'Tổng cọc', detail: 'Dùng đầu tháng khi GDTC chưa cập nhật đủ' },
-  { column: 'O', title: 'GDTC xét Best Team', detail: 'Dùng khi kế toán đã cập nhật giao dịch thành công' },
+  { column: 'N', title: 'Tổng cọc', detail: 'Dùng đầu tháng khi GDTC chưa cập nhật đủ' },
+  { column: 'P', title: 'GDTC xét Best Team', detail: 'Dùng khi kế toán đã cập nhật giao dịch thành công' },
 ]
 
 const managerOptions: Array<{ column: ManagerRankingColumn; title: string; detail: string }> = [
-  { column: 'K', title: 'Tổng cọc', detail: 'Dùng đầu tháng khi GDTC chưa cập nhật đủ' },
-  { column: 'L', title: 'Tổng GDTC + HC', detail: 'Dùng khi kế toán đã cập nhật giao dịch thành công' },
+  { column: 'M', title: 'Tổng cọc', detail: 'Dùng đầu tháng khi GDTC chưa cập nhật đủ' },
+  { column: 'O', title: 'Tổng GDTC + HC', detail: 'Dùng khi kế toán đã cập nhật giao dịch thành công' },
 ]
 
 export function SheetRankingColumnEditor({
@@ -68,16 +68,16 @@ export function SheetRankingColumnEditor({
           <button
             type="button"
             className={mode === 'deposit' ? 'active' : ''}
-            onClick={() => choosePreset({ team: 'M', manager: 'K' })}
+            onClick={() => choosePreset({ team: 'N', manager: 'M' })}
           >
-            Đầu tháng <small>M + K</small>
+            Đầu tháng <small>N + M</small>
           </button>
           <button
             type="button"
             className={mode === 'gdtc' ? 'active' : ''}
-            onClick={() => choosePreset({ team: 'O', manager: 'L' })}
+            onClick={() => choosePreset({ team: 'P', manager: 'O' })}
           >
-            Chốt GDTC <small>O + L</small>
+            Chốt GDTC <small>P + O</small>
           </button>
         </div>
       </div>
