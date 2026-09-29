@@ -1,5 +1,5 @@
-export type TeamRankingColumn = 'M' | 'O'
-export type ManagerRankingColumn = 'K' | 'L'
+export type TeamRankingColumn = 'N' | 'P'
+export type ManagerRankingColumn = 'M' | 'O'
 
 export type SheetRankingSelection = {
   team: TeamRankingColumn
@@ -50,28 +50,28 @@ const configuredLabel = (row: SheetMappingSettingRow) => {
 const teamColumnFromRow = (row: SheetMappingSettingRow): TeamRankingColumn => {
   const column = configuredColumn(row)
   const index = metricColumnIndex(row, 'best_team_metric')
-  if ((column === 'M' || !column) && index === 11) return 'M'
-  if ((column === 'O' || !column) && index === 13) return 'O'
-  throw new Error('Cấu hình DS-TEAM đang nằm ngoài hai cột được phép M/O.')
+  if ((column === 'N' || !column) && index === 12) return 'N'
+  if ((column === 'P' || !column) && index === 14) return 'P'
+  return column === 'P' ? 'P' : 'N'
 }
 
 const managerColumnFromRow = (row: SheetMappingSettingRow): ManagerRankingColumn => {
   const column = configuredColumn(row)
   const index = metricColumnIndex(row, 'manager_metric')
-  if ((column === 'K' || !column) && index === 9) return 'K'
-  if ((column === 'L' || !column) && index === 10) return 'L'
-  throw new Error('Cấu hình DS-KV đang nằm ngoài hai cột được phép K/L.')
+  if ((column === 'M' || !column) && index === 11) return 'M'
+  if ((column === 'O' || !column) && index === 13) return 'O'
+  return column === 'O' ? 'O' : 'M'
 }
 
 export const teamRankingLabel = (column: TeamRankingColumn) =>
-  column === 'M'
-    ? 'DS-TEAM cột M · TỔNG CỌC Tn'
-    : 'DS-TEAM cột O · GDTC XÉT BEST TEAM'
+  column === 'N'
+    ? 'DS-TEAM cột N · TỔNG CỌC Tn'
+    : 'DS-TEAM cột P · GDTC XÉT BEST TEAM'
 
 export const managerRankingLabel = (column: ManagerRankingColumn) =>
-  column === 'K'
-    ? 'DS-KV cột K · TỔNG CỌC Tn'
-    : 'DS-KV cột L · TỔNG GDTC+HC Tn'
+  column === 'M'
+    ? 'DS-KV cột M · TỔNG CỌC Tn'
+    : 'DS-KV cột O · TỔNG GDTC+HC Tn'
 
 export function parseSheetRankingSettings(
   rows: SheetMappingSettingRow[],
@@ -98,8 +98,8 @@ export function parseSheetRankingSettings(
 export function sheetRankingMode(
   selection: SheetRankingSelection,
 ): 'deposit' | 'gdtc' | 'mixed' {
-  if (selection.team === 'M' && selection.manager === 'K') return 'deposit'
-  if (selection.team === 'O' && selection.manager === 'L') return 'gdtc'
+  if (selection.team === 'N' && selection.manager === 'M') return 'deposit'
+  if (selection.team === 'P' && selection.manager === 'O') return 'gdtc'
   return 'mixed'
 }
 

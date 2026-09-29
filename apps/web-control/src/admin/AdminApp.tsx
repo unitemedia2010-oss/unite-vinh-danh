@@ -125,6 +125,8 @@ const pageTitles: Record<Page, { eyebrow: string; title: string; description: st
 }
 
 function HeaderActions({ onOpenShare }: { onOpenShare: () => void }) {
+  const signedInEmail = useSupabaseAuth()
+  
   return (
     <div className="header-actions">
       <button className="icon-button" title="Tìm kiếm"><Search size={18} /></button>
@@ -133,15 +135,30 @@ function HeaderActions({ onOpenShare }: { onOpenShare: () => void }) {
         <Share2 size={17} /> Mở link chia sẻ <ArrowUpRight size={15} />
       </button>
       <button className="profile-chip">
-        <span>MA</span>
-        <div><strong>Minh Admin</strong><small>Super Admin</small></div>
+        <span>{signedInEmail ? signedInEmail.charAt(0).toUpperCase() : 'KH'}</span>
+        <div><strong>{signedInEmail ? signedInEmail.split('@')[0] : 'Khách'}</strong><small>{signedInEmail ? 'Admin' : 'Chưa đăng nhập'}</small></div>
         <ChevronDown size={15} />
       </button>
     </div>
   )
 }
 
+function useSupabaseAuth() {
+  const [signedInEmail, setSignedInEmail] = useState<string | null>(null)
+  useEffect(() => {
+    const supabase = getSupabase()
+    if (!supabase) return
+    supabase.auth.getSession().then(({ data }) => setSignedInEmail(data.session?.user.email ?? null))
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSignedInEmail(session?.user.email ?? null)
+    })
+    return () => data.subscription.unsubscribe()
+  }, [])
+  return signedInEmail
+}
+
 export function AdminApp() {
+  const signedInEmail = useSupabaseAuth()
   const [page, setPage] = useState<Page>('dashboard')
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [toast, setToast] = useState('')
@@ -195,6 +212,7 @@ export function AdminApp() {
               </button>
             )
           })}
+          <button onClick={() => { window.open('#/avatar', '_blank') }} title="Mở trang Tạo avatar UNITE trong tab mới"><Sparkles size={19} /><span>Tạo avatar UNITE</span><ArrowUpRight size={15} /></button>
           <small className="nav-label nav-label--spaced">HỆ THỐNG</small>
           {navItems.slice(7).map((item) => {
             const Icon = item.icon
@@ -202,7 +220,13 @@ export function AdminApp() {
           })}
         </nav>
         <div className="sidebar__footer">
-          <div className="system-health"><span className="pulse-dot" /><div><strong>Hệ thống đang kết nối</strong><small>Supabase · Google Sheet tự động</small></div></div>
+          <div className="system-health">
+            <span className={`pulse-dot ${signedInEmail ? '' : 'pulse-dot--error'}`} />
+            <div>
+              <strong>{signedInEmail ? 'Hệ thống đang kết nối' : 'Đã ngắt kết nối'}</strong>
+              <small>{signedInEmail ? 'Supabase · Sẵn sàng' : 'Vui lòng đăng nhập Admin'}</small>
+            </div>
+          </div>
           <div className="sidebar__version">CONTROL CENTER <b>v0.1 MVP</b></div>
         </div>
       </aside>
