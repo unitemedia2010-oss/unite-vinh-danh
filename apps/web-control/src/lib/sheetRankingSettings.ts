@@ -1,5 +1,5 @@
 export type TeamRankingColumn = 'N' | 'P'
-export type ManagerRankingColumn = 'M' | 'O'
+export type ManagerRankingColumn = 'K' | 'L'
 
 export type SheetRankingSelection = {
   team: TeamRankingColumn
