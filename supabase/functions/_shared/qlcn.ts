@@ -57,7 +57,7 @@ function cleanCode(value: string | null): string | null {
  * QLCN is sourced only from DS-KV. Every valid DS-KV region row is an
  * independent ranking entry:
  * - board membership: the row's operator-maintained Bảng Đấu value;
- * - ranking metric: the row's TỔNG GDTC+HC Tn value;
+ * - ranking metric: the row's doanh số xếp hạng đã chọn value;
  * - the same MNV may therefore be honoured once for each managed region.
  *
  * There is intentionally no cross-row aggregation and no threshold fallback.
@@ -109,7 +109,7 @@ export function deriveQlcnAwards(
     const metric = parseInteger(row.metrics.manager_metric);
     if (metric === null || metric <= 0) {
       const message =
-        "QLCN thiếu TỔNG GDTC+HC Tn hợp lệ; chỉ dòng này bị loại khỏi bảng vinh danh.";
+        "QLCN thiếu doanh số xếp hạng đã chọn hợp lệ; chỉ dòng này bị loại khỏi bảng vinh danh.";
       messages.push(message);
       warnings.push({
         code: "QLCN_METRIC_INVALID",

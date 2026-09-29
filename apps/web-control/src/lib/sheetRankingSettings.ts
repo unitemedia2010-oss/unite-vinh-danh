@@ -52,7 +52,7 @@ const teamColumnFromRow = (row: SheetMappingSettingRow): TeamRankingColumn => {
   const index = metricColumnIndex(row, 'best_team_metric')
   if ((column === 'M' || !column) && index === 11) return 'M'
   if ((column === 'O' || !column) && index === 13) return 'O'
-  return column === 'O' ? 'O' : 'M'
+  throw new Error('DS-TEAM: cấu hình ngoài hai cột được phép hoặc vị trí và nhãn mâu thuẫn.')
 }
 
 const managerColumnFromRow = (row: SheetMappingSettingRow): ManagerRankingColumn => {
@@ -60,7 +60,7 @@ const managerColumnFromRow = (row: SheetMappingSettingRow): ManagerRankingColumn
   const index = metricColumnIndex(row, 'manager_metric')
   if ((column === 'K' || !column) && index === 9) return 'K'
   if ((column === 'L' || !column) && index === 10) return 'L'
-  return column === 'L' ? 'L' : 'K'
+  throw new Error('DS-KV: cấu hình ngoài hai cột được phép hoặc vị trí và nhãn mâu thuẫn.')
 }
 
 export const teamRankingLabel = (column: TeamRankingColumn) =>

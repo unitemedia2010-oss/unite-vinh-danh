@@ -59,7 +59,7 @@ export function deriveBestTeamContributions(
     if (revenueVnd === null) {
       warnings.push({
         code: "BEST_TEAM_METRIC_MISSING",
-        message: "Dòng team thiếu GDTC XÉT BEST TEAM.",
+        message: "Dòng team thiếu doanh số xếp hạng đã chọn.",
         details: {
           sourceRow: row.sourceRowNumber,
           teamCode: row.teamCode,
@@ -71,7 +71,7 @@ export function deriveBestTeamContributions(
     if (revenueVnd < 0) {
       warnings.push({
         code: "BEST_TEAM_METRIC_NEGATIVE",
-        message: "GDTC XÉT BEST TEAM âm nên dòng chưa được tính.",
+        message: "doanh số xếp hạng đã chọn âm nên dòng chưa được tính.",
         details: {
           sourceRow: row.sourceRowNumber,
           teamCode: row.teamCode,

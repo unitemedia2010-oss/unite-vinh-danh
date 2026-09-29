@@ -41,34 +41,38 @@ the title is an observation date; the recognition period comes from the required
 `Tn` metric headers. For example, the live title dated `27/07/2026` with `T8`
 headers resolves to period `2026-08`, not July.
 
-The Admin can select one of two accounting-approved source columns for each
-ranking family on `#/admin/imports`. The selection is saved atomically in
-`sheet_mappings`, recorded in `audit_logs`, and used by every later manual or
-Apps Script sync:
+As of 2026-09-29, `sync-sheet` automatically resolves the unique **TỔNG CỌC Tn**
+header in both DS-KV and DS-TEAM. Runtime policy supersedes legacy fixed-column
+SQL settings; the Admin imports page no longer offers a positional selector.
 
-Column position is authoritative; the visible header is only used to detect
-the `Tn` month and to produce a diagnostic warning. Accounting does not have to
-rename a tab or manually correct a header every month. Keep the stable tab
-names `DS-KV` and `DS-TEAM`; when the workbook rolls from `T8` to `T9`, the
-parser keeps reading the same positions and changes the release period from
-`YYYY-08` to `YYYY-09` automatically.
+- Read A1:AZ1000, including column A for the DS-KV title/STT. Request two header
+  rows from Google Visualization (zero causes numeric inference to erase labels).
+  Recover the collapsed title/STT and preserve original source row numbers.
+- Match the full total-deposit header, ignoring accents, case and whitespace;
+  accept T1 through T12 (also T01). Never use CỌC Tn, CỌC RVTn or GDTC as fallback.
+- Require unique identity and BẢNG ĐẤU headers. Missing/duplicate columns, missing
+  year, period conflicts and invalid amounts/formulas block before creating a batch.
+  Multiple total-deposit months in one tab are ambiguous and must be resolved in
+  the source; no implicit choice based on today's date.
+- Skip a leading total. Stop at a trailing total, including Visualization's
+  numeric subtotal whose STT label was erased. Do not ingest the secondary table.
+- QLCN ranks each DS-KV region row independently. Leader sums DS-TEAM total deposits
+  per MNV across distinct teams; Top Team uses (KHU VỰC, TEAM). BẢNG ĐẤU remains
+  operator-maintained. These grouping and eligibility rules are unchanged.
+- Persist detected column, header, period and algorithm version in raw_snapshot
+  and batch metadata.rankingSources; show the batch detection in Admin.
 
-- QLCN uses either `DS-KV` column K (`TỔNG CỌC Tn`, early month) or column L
-  (`TỔNG GDTC+HC Tn`, closing), plus column N, `Bảng Đấu`.
-  Every valid region row is ranked independently inside its manually assigned
-  Thống Soái, Tướng Quân or Thủ Lĩnh board. The same manager `MNV` may therefore
-  appear more than once when they manage multiple ranked regions.
-- Leader and Top Team use either `DS-TEAM` column M (`TỔNG CỌC Tn`, early
-  month) or column O (`GDTC XÉT BEST TEAM`, closing), plus column S,
-  `BẢNG ĐẤU`. Leader revenue is summed by `MNV` across distinct teams; Team
-  identities remain (`KHU VỰC`, `TEAM`).
+See [implementation/rollout plan](AUTO-DEPOSIT-PLAN.md). Deploy sync-sheet before
+web, then update the bound Apps Script and its WATCH_RANGES_JSON if configured.
+Legacy ranking-column RPCs are retained for old clients but no longer select
+metrics in this sync implementation. No schema migration or Sheet edit is needed.
 
-There is no automatic fallback between these columns: only an authorized Admin,
-Super Admin or Accounting operator can change the allowlisted K/L and M/O
-selection. A required source column that cannot be resolved, conflicting
-detected periods or a caller-supplied period mismatch blocks the whole sync. Ambiguous
-identity and invalid `Bảng Đấu` values exclude only their own row instead of
-guessing or blocking valid neighbours.
+Read-only live verification (prints aggregate diagnostics, no personnel records):
+
+```powershell
+node --experimental-strip-types supabase/scripts/audit-auto-deposit.mjs SPREADSHEET_ID
+node --experimental-strip-types --test supabase/functions/_shared/auto-deposit.test.mjs
+```
 
 Rows without a positive number, complete identity or valid `Bảng Đấu` value are
 excluded individually. For example, two valid Nguyễn Thị Hà (`U177`) rows for

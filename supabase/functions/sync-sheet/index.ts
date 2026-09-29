@@ -358,6 +358,9 @@ Deno.serve(async (request) => {
           trigger,
           sourceName: source.name,
           automaticRelease: true,
+          rankingSources: snapshots.filter(item => item.rankingSource).map(item => ({
+            mappingCode: item.mappingCode, ...item.rankingSource,
+          })),
         },
         p_allow_duplicate: body.force === true,
       },
@@ -838,13 +841,6 @@ Deno.serve(async (request) => {
       return jsonResponse({ error: message }, 401);
     }
     if (message === "FORBIDDEN") return jsonResponse({ error: message }, 403);
-    if (message === "RANKING_COLUMN_CONFIG_INVALID") {
-      return jsonResponse({
-        error: "SOURCE_SCHEMA_INVALID",
-        message:
-          "Cấu hình cột xếp hạng nằm ngoài DS-TEAM M/O hoặc DS-KV K/L.",
-      }, 409);
-    }
     return jsonResponse({ error: "SYNC_FAILED", message }, 500);
   }
 });

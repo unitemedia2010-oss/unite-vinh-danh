@@ -154,7 +154,7 @@ function pollVinhDanhSheet() {
   } catch (error) {
     PropertiesService.getDocumentProperties().setProperties({
       LAST_ERROR_AT: new Date().toISOString(),
-      LAST_ERROR: String(error && error.message ? error.message : error).slice(0, 500),
+      LAST_ERROR: String(error && error.message ? error.message : error).slice(0, 1800),
     });
     throw error;
   } finally {
@@ -190,9 +190,9 @@ function showVinhDanhSyncStatus() {
     'Trigger tự động: ' + (triggersReady ? 'ĐÃ CÀI' : 'CHƯA ĐỦ'),
     'Đã cài lúc: ' + vdDisplayTimestamp_(state.INSTALLED_AT),
     'Lần thấy dữ liệu: ' + vdDisplayTimestamp_(state.LAST_OBSERVED_AT),
-    'Lần gửi Supabase: ' + vdDisplayTimestamp_(state.LAST_SUBMITTED_AT),
+    'Lần gửi thành công: ' + vdDisplayTimestamp_(state.LAST_SUBMITTED_AT),
     'HTTP gần nhất: ' + (state.LAST_HTTP_STATUS || 'chưa có'),
-    'Kết quả: ' + (state.LAST_RESULT || 'chưa có'),
+    'Kết quả thành công gần nhất: ' + (state.LAST_RESULT || 'chưa có'),
     'Lỗi: ' + (state.LAST_ERROR || 'không'),
   ].join('\n');
 
@@ -338,6 +338,7 @@ function vdCallSync_(config, fingerprint, stableForSeconds) {
   };
   if (config.sourceId) payload.sourceId = config.sourceId;
 
+  PropertiesService.getDocumentProperties().setProperty('LAST_HTTP_STATUS', 'chưa nhận phản hồi');
   const response = UrlFetchApp.fetch(config.endpoint, {
     method: 'post',
     contentType: 'application/json',
@@ -346,7 +347,7 @@ function vdCallSync_(config, fingerprint, stableForSeconds) {
     muteHttpExceptions: true,
   });
   const status = response.getResponseCode();
-  PropertiesService.getScriptProperties().setProperty('LAST_HTTP_STATUS', String(status));
+  PropertiesService.getDocumentProperties().setProperty('LAST_HTTP_STATUS', String(status));
   const text = response.getContentText();
   let parsed = {};
   try { parsed = JSON.parse(text); } catch (_) { /* Keep a bounded generic error. */ }

@@ -265,6 +265,10 @@ a { color: inherit; text-decoration: none; }
 .mapping-config__actions > span { margin-right: auto; color: #858b94; font-size: 8px; line-height: 1.4; }
 .mapping-config__actions .button { min-height: 38px; }
 .mapping-list { padding: 7px 18px 15px; }
+.ranking-policy { padding: 8px 18px 4px; font-size: 13px; line-height: 1.65; overflow-wrap: anywhere; }
+.ranking-policy p { margin: 10px 0; }
+.ranking-policy ul { padding-left: 18px; }
+.ranking-policy .form-error { color: #a32929; }
 .mapping-row { min-height: 57px; display: grid; grid-template-columns: 64px 1fr 62px 22px; gap: 12px; align-items: center; border-bottom: 1px solid #edf0f2; }
 .mapping-row > span { color: #8d6b1e; font-size: 8px; font-weight: 750; letter-spacing: .5px; }
 .mapping-row > div { display: grid; gap: 3px; }

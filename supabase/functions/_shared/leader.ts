@@ -55,7 +55,7 @@ function cleanCode(value: string | null): string | null {
 
 /**
  * Leader membership is manually assigned in DS-TEAM.BẢNG ĐẤU. Ranking is the
- * sum of DS-TEAM.GDTC XÉT BEST TEAM (column O) from valid rows for that MNV.
+ * sum of DS-TEAM.doanh số xếp hạng đã chọn from valid rows for that MNV.
  * Invalid rows are dropped before grouping, so one broken row cannot suppress
  * another valid row belonging to the same Leader. Two different valid manual
  * boards for the same MNV remain a blocking identity conflict.
@@ -143,7 +143,7 @@ export function deriveLeaderAwards(
     const metric = parseInteger(row.metrics.best_team_metric);
     if (metric === null || metric <= 0) {
       const message =
-        "Leader thiếu GDTC XÉT BEST TEAM hợp lệ hoặc doanh số không lớn hơn 0; chỉ dòng này bị loại.";
+        "Leader thiếu doanh số xếp hạng đã chọn hợp lệ hoặc doanh số không lớn hơn 0; chỉ dòng này bị loại.";
       warnings.push({
         code: "LEADER_METRIC_INVALID",
         message,

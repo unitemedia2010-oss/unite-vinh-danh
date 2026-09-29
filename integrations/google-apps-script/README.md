@@ -1,3 +1,15 @@
+## Cập nhật nhận diện Tổng cọc (29/09/2026)
+
+Đồng bộ mới tự tìm TỔNG CỌC Tn ở DS-KV và DS-TEAM. Deploy sync-sheet mới trước,
+rồi chép Code.gs vào dự án bound script hiện tại. Trigger hiện có vẫn dùng cùng tên hàm.
+Vùng mặc định đổi thành DS-KV!A1:AZ1000 và DS-TEAM!A1:AZ1000. Nếu đã đặt
+WATCH_RANGES_JSON, xóa thuộc tính này để dùng mặc định hoặc mở rộng tương ứng.
+Watcher giới hạn vùng đọc theo kích thước grid, không tự thêm hàng/cột vào Sheet.
+
+HTTP gần nhất được cập nhật cả khi thất bại; trạng thái lỗi hiển thị chi tiết cột
+và phân biệt rõ kết quả thành công cũ. Lỗi schema không đánh dấu fingerprint đã gửi.
+Chạy kiểm thử cục bộ: `node --test integrations/google-apps-script/Code.test.mjs`.
+
 # Hướng dẫn đồng bộ Google Sheet tự động
 
 Apps Script này được gắn trực tiếp vào file Sheet kế toán để phát hiện thay đổi

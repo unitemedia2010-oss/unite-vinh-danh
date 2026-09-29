@@ -426,18 +426,26 @@ function ImportsPage({ notify }: { notify: (message: string) => void }) {
   const syncNow = async () => {
     setSyncError('')
     setSyncing(true)
-    const result = await invokeSheetSync({ force: false })
-    setSyncing(false)
-    if (result.error) {
-      setSyncError(result.error.message)
-      notify(isSupabaseConfigured ? `Không thể đồng bộ: ${result.error.message}` : 'Chưa cấu hình kết nối Supabase.')
-      return
+    try {
+      const result = await invokeSheetSync({ force: false })
+      if (result.error) throw result.error
+      await refreshBatches()
+      notify('Đã kiểm tra Sheet. Snapshot mới chỉ được tạo khi dữ liệu nguồn thay đổi và đạt điều kiện nhập.')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Không đọc được phản hồi đồng bộ.'
+      setSyncError(message)
+      notify(`Không thể đồng bộ: ${message}`)
+    } finally {
+      setSyncing(false)
     }
-    await refreshBatches()
-    notify('Đã kiểm tra Sheet. Snapshot mới chỉ được tạo khi dữ liệu nguồn thay đổi và đạt điều kiện nhập.')
   }
 
   const latest = batches[0]
+  const detectedSources = Array.isArray(latest?.metadata.rankingSources)
+    ? latest.metadata.rankingSources.filter((item): item is { mappingCode: string; label: string; periodId: string } =>
+      Boolean(item && typeof item === 'object' && typeof item.mappingCode === 'string' &&
+        typeof item.label === 'string' && typeof item.periodId === 'string'))
+    : []
   const approveLatest = async () => {
     if (!latest || latest.status === 'validated') return
     const note = latest.warningCount > 0
@@ -475,10 +483,14 @@ function ImportsPage({ notify }: { notify: (message: string) => void }) {
       <div className="content-grid content-grid--imports">
         <section className="panel">
           <PanelHeader eyebrow="NGUỒN XẾP HẠNG" title="Tự nhận diện Tổng cọc theo tháng" />
+          <div className="ranking-policy">
           <p>DS-KV và DS-TEAM tìm cột “TỔNG CỌC T1…T12” theo tiêu đề mỗi lần đồng bộ, kể cả khi đổi vị trí. QLCN dùng số khu vực; Leader và Team dùng số team.</p>
           <p>Nếu thiếu, trùng cột, sai kỳ hoặc lỗi công thức, hệ thống báo lỗi và giữ bản đang phát. Bảng Đấu vẫn lấy từ Sheet.</p>
           {syncError && <p role="alert" className="form-error">{syncError}</p>}
-          <p><small>Cột và kỳ thực tế được ghi trong snapshot của lần đồng bộ thành công.</small></p>
+          {detectedSources.length > 0
+            ? <ul>{detectedSources.map(item => <li key={item.mappingCode}>{item.label} · Kỳ {item.periodId} · Lô #{latest.sequence}</li>)}</ul>
+            : <p><small>Chưa có kết quả nhận diện tự động từ máy chủ. Cột và kỳ thực tế sẽ hiện sau lần đồng bộ bằng phiên bản mới.</small></p>}
+          </div>
           <div className="mapping-list">
             {[
               ['DS-KV', 'Khu vực và quản lý chi nhánh', 'DS-KV!A1:AZ1000', 'Theo tiêu đề'],
