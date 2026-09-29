@@ -22,6 +22,7 @@ import {
   type SheetMapping,
 } from "../_shared/sheet.ts";
 import { reconcileRecognitionSourceTotals } from "../_shared/reconciliation.ts";
+import { automaticRankingMapping, isAutomaticRanking, normalizeAutomaticRanking } from "../_shared/auto-deposit.ts";
 import { resolveSheetPeriod } from "../_shared/sheet-period.ts";
 import {
   normalizeSheetTrigger,
@@ -143,63 +144,6 @@ async function loadEmployeePhotoPaths(
   return indexEmployeePhotoRows(rows);
 }
 
-function rankingSourceDetails(mapping: SheetMapping): {
-  column: string;
-  label: string;
-} {
-  const filterConfig = mapping.filter_config ?? {};
-  const configuredColumn = typeof filterConfig.rankingSourceColumn === "string"
-    ? filterConfig.rankingSourceColumn.toUpperCase()
-    : "";
-  const configuredLabel = typeof filterConfig.rankingSourceLabel === "string"
-    ? filterConfig.rankingSourceLabel
-    : "";
-  const metricField = mapping.code === "DS_TEAM"
-    ? "best_team_metric"
-    : "manager_metric";
-  const rule = mapping.column_map?.[metricField];
-  const index = typeof rule === "object" ? rule.columnIndex : undefined;
-  if (mapping.code === "DS_TEAM" && index === 11) {
-    if (configuredColumn && configuredColumn !== "M") {
-      throw new Error("RANKING_COLUMN_CONFIG_INVALID");
-    }
-    return {
-      column: "M",
-      label: configuredLabel || "DS-TEAM cột M · TỔNG CỌC Tn",
-    };
-  }
-  if (mapping.code === "DS_KV" && index === 9) {
-    if (configuredColumn && configuredColumn !== "K") {
-      throw new Error("RANKING_COLUMN_CONFIG_INVALID");
-    }
-    return {
-      column: "K",
-      label: configuredLabel || "DS-KV cột K · TỔNG CỌC Tn",
-    };
-  }
-  if (mapping.code === "DS_TEAM" && index === 13) {
-    if (configuredColumn && configuredColumn !== "O") {
-      throw new Error("RANKING_COLUMN_CONFIG_INVALID");
-    }
-    return {
-      column: "O",
-      label: configuredLabel ||
-        "DS-TEAM cột O · GDTC XÉT BEST TEAM",
-    };
-  }
-  if (mapping.code === "DS_KV" && index === 10) {
-    if (configuredColumn && configuredColumn !== "L") {
-      throw new Error("RANKING_COLUMN_CONFIG_INVALID");
-    }
-    return {
-      column: "L",
-      label: configuredLabel ||
-        "DS-KV cột L · TỔNG GDTC+HC Tn",
-    };
-  }
-  throw new Error("RANKING_COLUMN_CONFIG_INVALID");
-}
-
 Deno.serve(async (request) => {
   if (request.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -284,13 +228,15 @@ Deno.serve(async (request) => {
       {
         mapping: SheetMapping;
         normalized: ReturnType<typeof normalizeSheetRows>;
+        rankingSource: ReturnType<typeof normalizeAutomaticRanking>["rankingSource"] | null;
       }
     > = [];
     const warnings: Array<Record<string, unknown>> = [];
     const blockingErrors: Array<Record<string, unknown>> = [];
     const periods = new Set<string>();
 
-    for (const mapping of mappingRows as SheetMapping[]) {
+    for (const storedMapping of mappingRows as SheetMapping[]) {
+      const mapping = automaticRankingMapping(storedMapping);
       if (source.auth_mode !== "public") {
         throw new Error("SERVICE_ACCOUNT_MODE_NOT_CONFIGURED");
       }
@@ -300,7 +246,8 @@ Deno.serve(async (request) => {
         mapping.range_a1,
         mapping.header_row,
       );
-      const normalized = normalizeSheetRows(matrix, mapping);
+      const automatic = isAutomaticRanking(mapping) ? normalizeAutomaticRanking(matrix, mapping, true) : null;
+      const normalized = automatic?.normalized ?? normalizeSheetRows(matrix, mapping);
       if (normalized.periodId) periods.add(normalized.periodId);
       normalized.warnings.forEach((message) =>
         warnings.push({ mapping: mapping.code, message })
@@ -318,10 +265,7 @@ Deno.serve(async (request) => {
           });
         });
       });
-      const rankingSource =
-        mapping.code === "DS_KV" || mapping.code === "DS_TEAM"
-          ? rankingSourceDetails(mapping)
-          : null;
+      const rankingSource = automatic?.rankingSource ?? null;
       if (
         (mapping.code === "DS_KV" || mapping.code === "DS_TEAM") &&
         !normalized.rows.some((row) =>
@@ -350,14 +294,14 @@ Deno.serve(async (request) => {
         headers: normalized.headers,
         rows: normalized.rows,
       });
-      allRows.push({ mapping, normalized });
+      allRows.push({ mapping, normalized, rankingSource });
     }
 
     if (blockingErrors.length) {
       return jsonResponse({
         error: "SOURCE_SCHEMA_INVALID",
         message:
-          "Sheet thiếu hoặc trùng cột bắt buộc; không tạo bản nhập để tránh xếp hạng sai.",
+          "Không xác định được nguồn Tổng cọc hợp lệ; xem chi tiết lỗi. Giữ nguyên bản đang phát.",
         blockingErrors,
         warnings,
       }, 409);
@@ -529,18 +473,8 @@ Deno.serve(async (request) => {
     const teamRows = allRows.find(({ mapping }) =>
       mapping.code === "DS_TEAM"
     )?.normalized.rows ?? [];
-    const managerMapping = allRows.find(({ mapping }) =>
-      mapping.code === "DS_KV"
-    )?.mapping;
-    const teamMapping = allRows.find(({ mapping }) =>
-      mapping.code === "DS_TEAM"
-    )?.mapping;
-    const managerRankingSource = managerMapping
-      ? rankingSourceDetails(managerMapping)
-      : { column: "L", label: "DS-KV cột L · TỔNG GDTC+HC Tn" };
-    const teamRankingSource = teamMapping
-      ? rankingSourceDetails(teamMapping)
-      : { column: "O", label: "DS-TEAM cột O · GDTC XÉT BEST TEAM" };
+    const managerRankingSource = allRows.find(({ mapping }) => mapping.code === "DS_KV")!.rankingSource!;
+    const teamRankingSource = allRows.find(({ mapping }) => mapping.code === "DS_TEAM")!.rankingSource!;
     const bestTeam = deriveBestTeamContributions(teamRows);
     const qlcn = deriveQlcnAwards(managerRows, 3);
     const team = deriveTeamAwardsFromContributions(bestTeam, 10);

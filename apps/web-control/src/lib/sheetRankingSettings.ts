@@ -1,4 +1,4 @@
-export type TeamRankingColumn = 'N' | 'P'
+export type TeamRankingColumn = 'M' | 'O'
 export type ManagerRankingColumn = 'K' | 'L'
 
 export type SheetRankingSelection = {
@@ -50,9 +50,9 @@ const configuredLabel = (row: SheetMappingSettingRow) => {
 const teamColumnFromRow = (row: SheetMappingSettingRow): TeamRankingColumn => {
   const column = configuredColumn(row)
   const index = metricColumnIndex(row, 'best_team_metric')
-  if ((column === 'N' || !column) && index === 12) return 'N'
-  if ((column === 'P' || !column) && index === 14) return 'P'
-  return column === 'P' ? 'P' : 'N'
+  if ((column === 'M' || !column) && index === 11) return 'M'
+  if ((column === 'O' || !column) && index === 13) return 'O'
+  return column === 'O' ? 'O' : 'M'
 }
 
 const managerColumnFromRow = (row: SheetMappingSettingRow): ManagerRankingColumn => {
@@ -64,9 +64,9 @@ const managerColumnFromRow = (row: SheetMappingSettingRow): ManagerRankingColumn
 }
 
 export const teamRankingLabel = (column: TeamRankingColumn) =>
-  column === 'N'
-    ? 'DS-TEAM cột N · TỔNG CỌC Tn'
-    : 'DS-TEAM cột P · GDTC XÉT BEST TEAM'
+  column === 'M'
+    ? 'DS-TEAM cột M · TỔNG CỌC Tn'
+    : 'DS-TEAM cột O · GDTC XÉT BEST TEAM'
 
 export const managerRankingLabel = (column: ManagerRankingColumn) =>
   column === 'K'
@@ -98,8 +98,8 @@ export function parseSheetRankingSettings(
 export function sheetRankingMode(
   selection: SheetRankingSelection,
 ): 'deposit' | 'gdtc' | 'mixed' {
-  if (selection.team === 'N' && selection.manager === 'K') return 'deposit'
-  if (selection.team === 'P' && selection.manager === 'L') return 'gdtc'
+  if (selection.team === 'M' && selection.manager === 'K') return 'deposit'
+  if (selection.team === 'O' && selection.manager === 'L') return 'gdtc'
   return 'mixed'
 }
 

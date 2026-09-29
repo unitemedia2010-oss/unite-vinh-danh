@@ -1,4 +1,4 @@
-import { createClient, type SupabaseClient } from '@supabase/supabase-js'
+import { createClient, FunctionsHttpError, type SupabaseClient } from '@supabase/supabase-js'
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim()
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim()
@@ -47,7 +47,7 @@ export const invokeSheetSync = async (options: { force?: boolean } = {}) => {
     return { data: null, error: authError || new Error('Admin cần đăng nhập trước khi đồng bộ Sheet.') }
   }
 
-  return supabase.functions.invoke(sheetSyncFunction, {
+  const result = await supabase.functions.invoke(sheetSyncFunction, {
     headers: { Authorization: `Bearer ${authData.session.access_token}` },
     body: {
       force: options.force ?? false,
@@ -55,6 +55,19 @@ export const invokeSheetSync = async (options: { force?: boolean } = {}) => {
       spreadsheetId: sheetSourceId,
     },
   })
+  if (result.error instanceof FunctionsHttpError) {
+    const response = result.error.context as Response
+    const body = await response.clone().json().catch(() => null)
+    const details = Array.isArray(body?.blockingErrors)
+      ? body.blockingErrors.slice(0, 5).map((item: { message?: unknown }) =>
+        typeof item?.message === 'string' ? item.message : '').filter(Boolean).join(' ')
+      : ''
+    const message = [body?.error, body?.message, details]
+      .filter((item): item is string => typeof item === 'string' && item.length > 0)
+      .join(' · ').slice(0, 1800)
+    return { data: result.data, error: new Error(`HTTP ${response.status}: ${message || result.error.message}`) }
+  }
+  return result
 }
 
 const authenticatedClient = async () => {

@@ -12,8 +12,8 @@ const VD_HANDLERS = Object.freeze({
 });
 
 const VD_DEFAULT_WATCH_RANGES = Object.freeze([
-  'DS-KV!B1:N20',
-  'DS-TEAM!B1:S1000',
+  'DS-KV!A1:AZ1000',
+  'DS-TEAM!A1:AZ1000',
 ]);
 
 const VD_STATE_KEYS = Object.freeze([
@@ -302,7 +302,10 @@ function vdWorkbookFingerprint_(watchRanges) {
     const rangeA1 = a1.slice(separator + 1);
     const sheet = spreadsheet.getSheetByName(sheetName);
     if (!sheet) throw new Error('Không tìm thấy tab: ' + sheetName);
-    const range = sheet.getRange(rangeA1);
+    // Stay inside the physical grid, without adding columns/rows to the workbook.
+    const range = rangeA1 === 'A1:AZ1000'
+      ? sheet.getRange(1, 1, Math.min(1000, sheet.getMaxRows()), Math.min(52, sheet.getMaxColumns()))
+      : sheet.getRange(rangeA1);
     return {
       range: a1,
       displayValues: range.getDisplayValues(),
@@ -343,12 +346,17 @@ function vdCallSync_(config, fingerprint, stableForSeconds) {
     muteHttpExceptions: true,
   });
   const status = response.getResponseCode();
+  PropertiesService.getScriptProperties().setProperty('LAST_HTTP_STATUS', String(status));
   const text = response.getContentText();
   let parsed = {};
   try { parsed = JSON.parse(text); } catch (_) { /* Keep a bounded generic error. */ }
   if (status < 200 || status >= 300) {
     const code = parsed.error || ('HTTP_' + status);
-    throw new Error('Supabase sync thất bại: ' + code);
+    const details = Array.isArray(parsed.blockingErrors)
+      ? parsed.blockingErrors.slice(0, 5).map(function (item) { return item.message || ''; }).join(' ')
+      : '';
+    throw new Error(('Supabase sync thất bại: HTTP ' + status + ' · ' + code +
+      ' · ' + (parsed.message || '') + ' ' + details).slice(0, 1800));
   }
   return {
     status: status,

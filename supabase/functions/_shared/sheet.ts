@@ -2,6 +2,8 @@ export type ColumnRule = {
   exact?: string;
   prefix?: string;
   regex?: string;
+  /** Regex applied after Vietnamese accent/case/whitespace normalization. */
+  normalizedRegex?: string;
   /** Zero-based, accounting-approved position inside the configured A1 range.
    * When present this is authoritative; header text is only a diagnostic. */
   columnIndex?: number;
@@ -172,6 +174,10 @@ function findHeaderColumns(headers: string[], ruleInput: ColumnRule | string): n
     );
     if (indexes.length) return indexes;
   }
+  if (rule.normalizedRegex) {
+    const regex = new RegExp(rule.normalizedRegex, "u");
+    return headers.flatMap((header, index) => regex.test(normalizeText(header)) ? [index] : []);
+  }
   return [];
 }
 
@@ -233,6 +239,8 @@ export function normalizeSheetRows(matrix: string[][], mapping: SheetMapping): {
   title: string;
   periodId: string | null;
   headers: string[];
+  columnIndexes: Record<string, number>;
+  headerRow: number;
   rows: NormalizedSheetRow[];
   warnings: string[];
   blockingErrors: string[];
@@ -346,7 +354,18 @@ export function normalizeSheetRows(matrix: string[][], mapping: SheetMapping): {
     const source = matrix[matrixIndex] ?? [];
     const rankIndex = columnIndexes.source_rank ?? -1;
     const rankRaw = rankIndex >= 0 ? source[rankIndex] : firstText(source);
-    if (stopLabels.includes(normalizeText(rankRaw))) break;
+    if (stopLabels.includes(normalizeText(rankRaw))) {
+      if (filterConfig.skipLeadingTotal === true && normalizedRows.length === 0) continue;
+      break;
+    }
+    // Visualization drops text such as TỔNG from a numeric STT column.
+    // A trailing subtotal still has an amount, but no rank or entity identity.
+    if (filterConfig.stopTrailingAggregate === true && normalizedRows.length > 0 &&
+      !String(rankRaw ?? "").trim() &&
+      ["display_name", "entity_code", "branch_code", "team_code"].every(field =>
+        !String(source[columnIndexes[field] ?? -1] ?? "").trim()) &&
+      parseInteger(source[columnIndexes[selectedRevenueField] ?? -1]) !== null) break;
+    if (filterConfig.strictNumericRank === true && !/^\d+$/.test(String(rankRaw ?? "").trim())) continue;
     const rank = parseInteger(rankRaw);
     if (numericRankOnly && rank === null) continue;
 
@@ -382,7 +401,8 @@ export function normalizeSheetRows(matrix: string[][], mapping: SheetMapping): {
       if (header?.trim()) rawData[header.trim()] = source[index] ?? null;
     });
 
-    const sourceRowNumber = matrixIndex + 1 - (headerIndex - configuredHeaderIndex);
+    const sourceRowNumber = matrixIndex + 1 - (filterConfig.physicalRowNumbers === true
+      ? 0 : headerIndex - configuredHeaderIndex);
     const identity = entityCode || teamCode || branchCode || `row-${sourceRowNumber}`;
     normalizedRows.push({
       sourceRowKey: `${mapping.code}:${sourceRowNumber}:${identity}`,
@@ -408,6 +428,8 @@ export function normalizeSheetRows(matrix: string[][], mapping: SheetMapping): {
     title,
     periodId: explicitTitlePeriodId ?? metricPeriodId ?? extractPeriod(title),
     headers,
+    columnIndexes,
+    headerRow: headerIndex + 1,
     rows: normalizedRows,
     warnings,
     blockingErrors,
